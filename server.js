@@ -7,54 +7,42 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-// CONEXIÓN A LA BASE DE DATOS
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
 });
 
-// --- RUTA SECRETA PARA CREAR LAS TABLAS (SOLO SE USA UNA VEZ) ---
+// --- RUTA DE INSTALACIÓN (DATOS GENÉRICOS) ---
 app.get('/setup', async (req, res) => {
   try {
-    // Crear tabla de Usuarios
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS usuarios (
-        id SERIAL PRIMARY KEY,
-        nombre VARCHAR(100),
-        rol VARCHAR(20),
-        password VARCHAR(50)
-      );
-    `);
-    
-    // Crear tabla de Referidos (Votantes)
+    // 1. Crear tabla de Votantes
     await pool.query(`
       CREATE TABLE IF NOT EXISTS referidos (
         id SERIAL PRIMARY KEY,
         cedula VARCHAR(20) UNIQUE NOT NULL,
         nombre VARCHAR(100),
         mesa_votacion VARCHAR(10),
-        voto BOOLEAN DEFAULT FALSE,
-        fecha_voto TIMESTAMP,
-        origen VARCHAR(20),
-        id_responsable INTEGER
+        lider_cargo VARCHAR(100),
+        voto BOOLEAN DEFAULT FALSE
       );
     `);
 
-    // Insertar un usuario de prueba (si no existe)
+    // 2. Insertar a JUAN PÉREZ como prueba (Cédula 123456)
     await pool.query(`
-      INSERT INTO usuarios (nombre, rol, password) 
-      VALUES ('Jefe Planeacion', 'ADMIN', 'admin123')
-      ON CONFLICT DO NOTHING;
+      INSERT INTO referidos (cedula, nombre, mesa_votacion, lider_cargo) 
+      VALUES ('123456', 'Juan Pérez', 'Mesa 1', 'Líder de Prueba')
+      ON CONFLICT (cedula) DO UPDATE 
+      SET nombre = 'Juan Pérez';
     `);
 
-    res.send("✅ ¡ÉXITO! Las tablas (Memoria) han sido creadas. Ya puedes usar el sistema.");
+    res.send("✅ LISTO: Base de datos configurada con Usuario de Prueba.");
   } catch (err) {
     console.error(err);
     res.send("❌ ERROR: " + err.message);
   }
 });
 
-// --- RUTA 1: VERIFICAR CÉDULA ---
+// --- VERIFICAR CÉDULA ---
 app.get('/api/verificar/:cedula', async (req, res) => {
   const { cedula } = req.params;
   try {
@@ -62,32 +50,13 @@ app.get('/api/verificar/:cedula', async (req, res) => {
     if (result.rows.length === 0) {
       return res.json({ estado: 'NUEVO', mensaje: 'Votante no registrado' });
     }
-    const referido = result.rows[0];
-    if (referido.voto) {
-        return res.json({ estado: 'YA_VOTO', datos: referido });
-    }
-    return res.json({ estado: 'REGISTRADO', datos: referido });
+    return res.json({ estado: 'REGISTRADO', datos: result.rows[0] });
   } catch (err) {
-    console.error(err);
     res.status(500).json({ error: 'Error del servidor' });
   }
 });
 
-// --- RUTA 2: REGISTRAR VOTO ---
-app.post('/api/votar', async (req, res) => {
-  const { cedula } = req.body;
-  try {
-    const fecha = new Date();
-    await pool.query('UPDATE referidos SET voto = true, fecha_voto = $1 WHERE cedula = $2', [fecha, cedula]);
-    res.json({ exito: true, mensaje: 'Voto registrado' });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Error al registrar voto' });
-  }
-});
-
-// Iniciar servidor
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Servidor rodando en puerto ${PORT}`);
+  console.log(`Servidor listo en puerto ${PORT}`);
 });
