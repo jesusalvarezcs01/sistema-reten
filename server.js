@@ -13,7 +13,7 @@ const pool = new Pool({
 });
 
 // =================================================================
-// VERSIÓN DE DIAGNÓSTICO (CONSOLA EN PANTALLA)
+// VERSIÓN V8: SERVIDORES RÁPIDOS (JSDELIVR) + DEBUG AVANZADO
 // =================================================================
 const APP_HTML = `
 <!DOCTYPE html>
@@ -23,7 +23,7 @@ const APP_HTML = `
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Sistema Electoral</title>
     
-    <script src="https://unpkg.com/@microblink/blinkid-in-browser-sdk@5.8.0/ui/dist/blinkid-in-browser/blinkid-in-browser.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@microblink/blinkid-in-browser-sdk@6.1.0/ui/dist/blinkid-in-browser/blinkid-in-browser.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     
     <style>
@@ -43,15 +43,21 @@ const APP_HTML = `
         /* HEADER CAMARA */
         .cam-header { position: absolute; top: 0; left: 0; width: 100%; height: 60px; background: rgba(0,0,0,0.8); z-index: 10000; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; box-sizing: border-box; color: white; }
 
-        /* CONSOLA DE ERRORES EN PANTALLA (ESTO TE DIRÁ QUE PASA) */
+        /* CONSOLA DE DEBUG */
         #debug-console {
             position: absolute; bottom: 0; left: 0; width: 100%; height: 150px;
-            background: rgba(0,0,0,0.8); color: #00ff00; font-family: monospace; font-size: 10px;
+            background: rgba(0,0,0,0.8); color: #00ff00; font-family: monospace; font-size: 11px;
             overflow-y: scroll; z-index: 10001; padding: 10px; box-sizing: border-box;
-            border-top: 2px solid red; pointer-events: none;
+            border-top: 2px solid orange; pointer-events: none;
         }
 
         blinkid-in-browser { width: 100%; height: 100%; display: block; }
+
+        /* LOADING SPINNER */
+        #loader {
+            position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%);
+            color: white; z-index: 9000; text-align: center; pointer-events: none;
+        }
 
         /* MODAL */
         #modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 20000; display: none; align-items: center; justify-content: center; }
@@ -63,7 +69,6 @@ const APP_HTML = `
     <script>
         const LICENCIA = "sRwCABpzaXN0ZW1hLXJldGVuLm9ucmVuZGVyLmNvbQZsZXlKRGNtVmhkR1ZrVDI0aU9qRTNOekF6TkRBNE56UXhORE1zSWtOeVpXRjBaV1JHYjNJaU9pSmhOVFkyT1RNeFppMWpNbVEyTFRRMk1UY3RZalF3T0MwM09Ea3dNVFJrT0RFMVpqQWlmUT09Xx8uagCPC8T3b3Qa3oHIoGgMBAgsat/gyX1+szaTbpLSxKbea+5LfnKoV2qjcJo5KX2BZfrFUBxFP093X0F3XpjecVfoJx+llc9E4c5k8MBT59V+d+ll6wtjn1EnjA==";
         
-        // --- FUNCIÓN DE DEBUG EN PANTALLA ---
         function log(msg, type='info') {
             const consoleDiv = document.getElementById('debug-console');
             const p = document.createElement('div');
@@ -72,11 +77,7 @@ const APP_HTML = `
             if(type === 'success') p.style.color = 'cyan';
             consoleDiv.appendChild(p);
             consoleDiv.scrollTop = consoleDiv.scrollHeight;
-            console.log(msg);
         }
-        window.onerror = function(message, source, lineno, colno, error) {
-            log("ERROR GLOBAL: " + message, 'error');
-        };
     </script>
 
     <div id="layer-ui">
@@ -93,7 +94,6 @@ const APP_HTML = `
             <div style="background:#003366; color:white; padding:15px; position:fixed; top:0; left:0; width:100%; z-index:100; display:flex; justify-content:space-between; box-sizing:border-box;">
                 <b id="u-name">Usuario</b> <span onclick="logout()">SALIR</span>
             </div>
-            
             <div class="card" onclick="irRegistro()"><h3>📝 REGISTRO MANUAL</h3></div>
             <div class="card" onclick="activarCamara()" style="border: 3px solid #28a745;"><h3 style="color:#28a745">📷 ACTIVAR ESCÁNER</h3></div>
             <div class="card"><h3>Total: <span id="s-total">0</span> | Votos: <span id="s-votos">0</span></h3></div>
@@ -110,27 +110,27 @@ const APP_HTML = `
 
     <div id="layer-camera">
         <div class="cam-header">
-            <b>Diagnóstico</b>
+            <b>Diagnóstico V8</b>
             <button onclick="cerrarCamara()" style="background:white; color:black; border:none; padding:5px 15px; border-radius:15px;">X</button>
         </div>
         
-        <blinkid-in-browser
-            id="scanner-el"
-            engine-location="https://unpkg.com/@microblink/blinkid-in-browser-sdk@5.8.0/resources/"
-        ></blinkid-in-browser>
+        <div id="loader">
+            <i class="fas fa-circle-notch fa-spin fa-3x"></i><br><br>
+            CARGANDO MOTORES...<br>
+            (Puede tardar si el internet es lento)
+        </div>
 
-        <div id="debug-console">Iniciando sistema de diagnóstico...<br></div>
+        <blinkid-in-browser id="scanner-el"></blinkid-in-browser>
+
+        <div id="debug-console">Inicializando...<br></div>
     </div>
 
-    <div id="modal-overlay">
-        <div id="modal-box"></div>
-    </div>
+    <div id="modal-overlay"><div id="modal-box"></div></div>
 
     <script>
         const API = window.location.origin;
         let currentUser = null;
 
-        // --- MANEJO UI ---
         function verDashboard() {
             document.getElementById('view-login').style.display = 'none';
             document.getElementById('view-registro').style.display = 'none';
@@ -142,42 +142,45 @@ const APP_HTML = `
             document.getElementById('view-registro').style.display = 'block';
         }
 
-        // --- LOGICA CAMARA CON DEBUG ---
         async function activarCamara() {
             document.getElementById('layer-ui').style.display = 'none';
             document.getElementById('layer-camera').style.display = 'flex';
+            document.getElementById('loader').style.display = 'block';
             
-            log("1. Solicitando acceso a cámara...", 'info');
+            log("1. Pidiendo permiso nativo...", 'info');
             
             try {
-                // PRIMERO PEDIMOS PERMISO NATIVO
+                // 1. Permiso Nativo
                 const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-                log("2. Permiso concedido. Cerrando stream nativo.", 'success');
+                log("2. Permiso OK. Iniciando carga SDK.", 'success');
                 stream.getTracks().forEach(t => t.stop());
                 
-                // LUEGO INICIAMOS SDK
-                iniciarSDK();
+                // 2. Iniciar SDK con Timeout
+                const timer = setTimeout(() => {
+                    log("ALERTA: Tarda mucho. Revisa tu internet.", 'error');
+                    alert("El escáner está tardando demasiado en cargar. Posible conexión lenta.");
+                }, 15000); // 15 segundos de tolerancia
+
+                iniciarSDK(timer);
                 
             } catch(e) {
-                log("ERROR FATAL: El usuario o navegador negó la cámara.", 'error');
-                log(e.message, 'error');
+                log("ERROR FATAL: Cámara denegada.", 'error');
                 alert("No diste permiso de cámara.");
             }
         }
 
-        function iniciarSDK() {
-            log("3. Configurando Microblink...", 'info');
+        function iniciarSDK(timer) {
+            log("3. Configurando SDK 6.1.0 (JSDelivr)...", 'info');
             const el = document.getElementById('scanner-el');
             
             try {
                 el.licenseKey = LICENCIA;
                 el.recognizers = ['BlinkIdRecognizer'];
                 
-                // Configuración crítica de recursos
-                // Aseguramos que apunte a UNPKG para bajar los archivos WASM
-                el.engineLocation = "https://unpkg.com/@microblink/blinkid-in-browser-sdk@5.8.0/resources/";
+                // CAMBIO CLAVE: Usamos JSDelivr que es más rápido en LATAM
+                el.engineLocation = "https://cdn.jsdelivr.net/npm/@microblink/blinkid-in-browser-sdk@6.1.0/resources/";
                 
-                log("4. Engine Location seteado a: " + el.engineLocation);
+                log("4. Engine URL: " + el.engineLocation);
                 
                 el.addEventListener('scanSuccess', (ev) => {
                     log("SCAN EXITO!", 'success');
@@ -191,15 +194,23 @@ const APP_HTML = `
                     }
                 });
 
+                // Este evento dispara cuando el motor YA cargó y está listo
+                el.addEventListener('ready', () => {
+                    clearTimeout(timer);
+                    log("5. MOTOR LISTO Y CARGADO!", 'success');
+                    document.getElementById('loader').style.display = 'none';
+                });
+
                 el.addEventListener('fatalError', (ev) => {
+                    clearTimeout(timer);
                     log("ERROR SDK: " + ev.detail.message, 'error');
                 });
 
                 el.addEventListener('scanError', (ev) => {
-                    log("ERROR ESCANEO (Licencia/Red): " + ev.detail.code, 'error');
+                    log("ERROR ESCANEO: " + ev.detail.code, 'error');
                 });
                 
-                log("5. Esperando que el componente cargue...", 'info');
+                log("5. Esperando descarga de recursos WASM...", 'info');
 
             } catch(e) {
                 log("EXCEPCION JS: " + e.message, 'error');
@@ -212,7 +223,6 @@ const APP_HTML = `
             location.reload(); 
         }
 
-        // --- NEGOCIO ---
         async function doLogin() {
             const u = document.getElementById('l-user').value;
             const p = document.getElementById('l-pass').value;
