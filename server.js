@@ -2,6 +2,7 @@ const express = require('express');
 const { Pool } = require('pg');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const axios = require('axios'); // NECESARIO PARA EL TRUCO (Ya viene en Render usualmente)
 
 const app = express();
 app.use(cors());
@@ -13,7 +14,28 @@ const pool = new Pool({
 });
 
 // =================================================================
-// CÓDIGO MAESTRO V13: JSDELIVR (RED DE ALTA VELOCIDAD)
+// 1. TRUCO DE PROXY (BACKEND DESCARGA LOS ARCHIVOS)
+// =================================================================
+// Esto engaña al celular para que crea que los archivos son locales
+app.get('/resources/:file', async (req, res) => {
+    const fileName = req.params.file;
+    const remoteUrl = `https://cdn.jsdelivr.net/npm/@microblink/blinkid-in-browser-sdk@6.1.0/resources/${fileName}`;
+    
+    try {
+        // El servidor descarga el archivo por ti
+        const response = await axios.get(remoteUrl, { responseType: 'arraybuffer' });
+        
+        // Se lo entregamos al celular con los permisos correctos
+        res.set('Content-Type', response.headers['content-type']);
+        res.set('Access-Control-Allow-Origin', '*');
+        res.send(response.data);
+    } catch (error) {
+        res.status(404).send("Error proxy: " + error.message);
+    }
+});
+
+// =================================================================
+// 2. INTERFAZ GRÁFICA (V14)
 // =================================================================
 const APP_HTML = `
 <!DOCTYPE html>
@@ -23,37 +45,37 @@ const APP_HTML = `
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Sistema Electoral</title>
     
-    <script src="https://cdn.jsdelivr.net/npm/@microblink/blinkid-in-browser-sdk@5.8.0/dist/blinkid-sdk.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@microblink/blinkid-in-browser-sdk@6.1.0/ui/dist/blinkid-in-browser/blinkid-in-browser.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     
     <style>
-        * { box-sizing: border-box; }
         body, html { height: 100%; margin: 0; padding: 0; font-family: sans-serif; background: #000; overflow: hidden; }
 
-        /* CONTENEDORES PRINCIPALES */
-        #view-login { width: 100%; height: 100%; background: #003366; display: flex; align-items: center; justify-content: center; position: absolute; z-index: 50; }
-        #view-dashboard { width: 100%; height: 100%; background: #f4f7f6; display: none; overflow-y: auto; position: absolute; z-index: 40; }
-        #view-scanner { width: 100%; height: 100%; background: #000; display: none; position: absolute; z-index: 60; }
+        /* CAPAS */
+        #layer-ui { position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow-y: auto; z-index: 10; background: #f4f7f6; }
+        #layer-camera { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 9999; display: none; flex-direction: column; }
 
-        /* ELEMENTOS UI */
-        .card { background: white; width: 90%; max-width: 400px; padding: 25px; border-radius: 12px; margin: 20px auto; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
-        .btn { width: 100%; padding: 15px; border: none; border-radius: 8px; font-weight: bold; font-size: 16px; margin-top: 15px; color: white; cursor: pointer; }
+        /* UI */
+        .card { background: white; width: 90%; max-width: 400px; padding: 20px; border-radius: 12px; margin: 20px auto; text-align: center; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        .btn { width: 100%; padding: 15px; border: none; border-radius: 8px; font-weight: bold; font-size: 16px; margin-top: 10px; color: white; cursor: pointer; }
         .btn-green { background: #28a745; }
         .btn-blue { background: #003366; }
-        input { width: 100%; padding: 12px; margin-bottom: 10px; text-align: center; border: 1px solid #ddd; border-radius: 5px; font-size: 16px; }
+        input { width: 100%; padding: 12px; margin-bottom: 10px; text-align: center; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
 
-        /* CAMARA FULLSCREEN */
-        #camera-feed { width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
-        #camera-feed video { object-fit: cover; width: 100% !important; height: 100% !important; }
+        /* HEADER CAMARA */
+        .cam-header { position: absolute; top: 0; left: 0; width: 100%; height: 60px; background: rgba(0,0,0,0.8); z-index: 10000; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; box-sizing: border-box; color: white; }
 
-        /* UI SOBRE CAMARA */
-        .scan-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 70; }
-        .scan-header { padding: 15px; display: flex; justify-content: space-between; background: rgba(0,0,0,0.5); pointer-events: auto; }
-        #scan-msg { position: absolute; top: 50%; width: 100%; text-align: center; color: white; transform: translateY(-50%); text-shadow: 0 2px 4px black; }
+        blinkid-in-browser { width: 100%; height: 100%; display: block; }
+
+        /* LOADING */
+        #loader {
+            position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%);
+            color: white; z-index: 9000; text-align: center; pointer-events: none;
+        }
 
         /* MODAL */
-        #modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 100; display: none; align-items: center; justify-content: center; }
-        #modal-box { background: white; width: 85%; padding: 20px; border-radius: 10px; text-align: center; }
+        #modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 20000; display: none; align-items: center; justify-content: center; }
+        #modal-box { background: white; padding: 25px; border-radius: 10px; width: 85%; max-width: 350px; text-align: center; }
     </style>
 </head>
 <body>
@@ -62,172 +84,174 @@ const APP_HTML = `
         const LICENCIA = "sRwCABpzaXN0ZW1hLXJldGVuLm9ucmVuZGVyLmNvbQZsZXlKRGNtVmhkR1ZrVDI0aU9qRTNOekF6TkRBNE56UXhORE1zSWtOeVpXRjBaV1JHYjNJaU9pSmhOVFkyT1RNeFppMWpNbVEyTFRRMk1UY3RZalF3T0MwM09Ea3dNVFJrT0RFMVpqQWlmUT09Xx8uagCPC8T3b3Qa3oHIoGgMBAgsat/gyX1+szaTbpLSxKbea+5LfnKoV2qjcJo5KX2BZfrFUBxFP093X0F3XpjecVfoJx+llc9E4c5k8MBT59V+d+ll6wtjn1EnjA==";
     </script>
 
-    <div id="view-login">
-        <div class="card">
-            <h2 style="color:#003366">EL RETÉN 2026</h2>
-            <input type="number" id="u" placeholder="Usuario">
-            <input type="password" id="p" placeholder="Contraseña">
-            <button class="btn btn-green" onclick="login()">INGRESAR</button>
+    <div id="layer-ui">
+        <div id="view-login" style="height: 100vh; display: flex; align-items: center; justify-content: center; background: #003366;">
+            <div class="card">
+                <h2>CONTROL ELECTORAL</h2>
+                <input type="number" id="l-user" placeholder="Cédula">
+                <input type="password" id="l-pass" placeholder="Contraseña">
+                <button class="btn btn-green" onclick="doLogin()">ENTRAR</button>
+            </div>
+        </div>
+
+        <div id="view-dashboard" style="display:none; padding-top: 60px;">
+            <div style="background:#003366; color:white; padding:15px; position:fixed; top:0; left:0; width:100%; z-index:100; display:flex; justify-content:space-between; box-sizing:border-box;">
+                <b id="u-name">Usuario</b> <span onclick="logout()">SALIR</span>
+            </div>
+            <div class="card" onclick="irRegistro()"><h3>📝 REGISTRO MANUAL</h3></div>
+            <div class="card" onclick="activarCamara()" style="border: 3px solid #28a745;"><h3 style="color:#28a745">📷 ACTIVAR ESCÁNER</h3></div>
+            <div class="card"><h3>Total: <span id="s-total">0</span> | Votos: <span id="s-votos">0</span></h3></div>
+        </div>
+
+        <div id="view-registro" style="display:none; padding-top:20px;">
+            <div class="card">
+                <h3>Nuevo</h3>
+                <input type="text" id="r-nom" placeholder="Nombre"><input type="number" id="r-ced" placeholder="Cédula">
+                <button class="btn btn-blue" onclick="guardar()">GUARDAR</button><button class="btn btn-red" onclick="verDashboard()">VOLVER</button>
+            </div>
         </div>
     </div>
 
-    <div id="view-dashboard">
-        <div style="background:#003366; color:white; padding:15px; display:flex; justify-content:space-between; position:sticky; top:0;">
-            <b id="lbl-user">...</b> <span onclick="logout()" style="cursor:pointer">SALIR</span>
+    <div id="layer-camera">
+        <div class="cam-header">
+            <b>Escáner V14 (Proxy)</b>
+            <button onclick="cerrarCamara()" style="background:white; color:black; border:none; padding:5px 15px; border-radius:15px;">X</button>
         </div>
         
-        <div class="card" onclick="startCamera()" style="border: 3px solid #28a745;">
-            <i class="fas fa-camera fa-3x" style="color:#28a745"></i>
-            <h3>ESCANEAR CÉDULA</h3>
-            <p>Modo Día D</p>
+        <div id="loader">
+            <i class="fas fa-circle-notch fa-spin fa-3x"></i><br><br>
+            CARGANDO RECURSOS...
         </div>
 
-        <div class="card" onclick="alert('Usa el escáner por ahora')">
-            <h3>REGISTRO MANUAL</h3>
-        </div>
-
-        <div class="card">
-            <h3>TOTAL: <span id="st-t">0</span> | VOTOS: <span id="st-v">0</span></h3>
-        </div>
+        <blinkid-in-browser id="scanner-el"></blinkid-in-browser>
     </div>
 
-    <div id="view-scanner">
-        <div id="camera-feed"></div>
-        <div class="scan-overlay">
-            <div class="scan-header">
-                <span style="color:white; font-weight:bold;">ESCANEANDO...</span>
-                <button onclick="stopCamera()" style="background:white; border:none; padding:5px 15px; border-radius:20px;">CERRAR</button>
-            </div>
-            <div id="scan-msg">
-                <i class="fas fa-spinner fa-spin fa-3x"></i><br><br>DESCARGANDO MOTOR...
-            </div>
-        </div>
-    </div>
-
-    <div id="modal"><div id="modal-box"></div></div>
+    <div id="modal-overlay"><div id="modal-box"></div></div>
 
     <script>
         const API = window.location.origin;
-        let videoRecognizer = null;
-        let sdkRunner = null;
+        let currentUser = null;
 
-        // --- MANEJO DE VISTAS ---
-        function mostrarDashboard(user) {
-            const loginDiv = document.getElementById('view-login');
-            if(loginDiv) loginDiv.remove(); 
+        function verDashboard() {
+            document.getElementById('view-login').style.display = 'none';
+            document.getElementById('view-registro').style.display = 'none';
             document.getElementById('view-dashboard').style.display = 'block';
-            document.getElementById('lbl-user').innerText = user.nombres;
             cargarStats();
         }
-
-        // --- MICROBLINK CON JSDELIVR ---
-        async function startCamera() {
+        function irRegistro() {
             document.getElementById('view-dashboard').style.display = 'none';
-            document.getElementById('view-scanner').style.display = 'block';
-            document.getElementById('scan-msg').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Conectando Servidor...';
+            document.getElementById('view-registro').style.display = 'block';
+        }
 
+        async function activarCamara() {
+            document.getElementById('layer-ui').style.display = 'none';
+            document.getElementById('layer-camera').style.display = 'flex';
+            document.getElementById('loader').style.display = 'block';
+            
             try {
-                if (!BlinkIDSDK.isBrowserSupported()) {
-                    alert("Navegador no soportado"); return stopCamera();
-                }
-
-                // CONFIGURACIÓN CRÍTICA: USAR JSDELIVR
-                const loadSettings = new BlinkIDSDK.WasmSDKLoadSettings(LICENCIA);
+                // 1. Permiso Nativo
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                stream.getTracks().forEach(t => t.stop());
                 
-                // ===> AQUÍ ESTÁ LA CORRECCIÓN <===
-                loadSettings.engineLocation = "https://cdn.jsdelivr.net/npm/@microblink/blinkid-in-browser-sdk@5.8.0/resources/";
-
-                document.getElementById('scan-msg').innerText = "Cargando Inteligencia Artificial...";
+                // 2. Configurar SDK apuntando a NUESTRO PROPIO SERVIDOR
+                const el = document.getElementById('scanner-el');
+                el.licenseKey = LICENCIA;
+                el.recognizers = ['BlinkIdRecognizer'];
                 
-                const sdk = await BlinkIDSDK.loadWasmModule(loadSettings);
-                sdkRunner = sdk;
-
-                document.getElementById('scan-msg').innerText = "Iniciando Cámara...";
-
-                const recognizer = await BlinkIDSDK.createBlinkIdRecognizer(sdk);
-                const recognizerRunner = await BlinkIDSDK.createRecognizerRunner(sdk, [recognizer], false);
-
-                videoRecognizer = await BlinkIDSDK.VideoRecognizer.createVideoRecognizerFromCameraStream(
-                    document.getElementById('camera-feed'),
-                    recognizerRunner
-                );
-
-                document.getElementById('scan-msg').style.display = 'none'; // Ocultar texto
+                // MAGIA AQUI: Le decimos que los archivos están AQUI MISMO
+                // El backend (/resources/) se encargará de buscarlos afuera
+                el.engineLocation = window.location.origin + "/resources/";
                 
-                await videoRecognizer.startRecognition(async (state) => {
-                    if (state === BlinkIDSDK.RecognizerResultState.Valid) {
-                        const result = await recognizer.getResult();
-                        let doc = result.documentNumber || result.mrz.documentNumber || result.mrz.primaryId;
-                        
-                        if(doc) {
-                            videoRecognizer.pauseRecognition();
-                            let cedula = doc.replace(/[^0-9]/g, '');
-                            procesarCedula(cedula);
-                        }
+                console.log("Cargando engine desde: " + el.engineLocation);
+
+                el.addEventListener('scanSuccess', (ev) => {
+                    const r = ev.detail.recognizers.BlinkIdRecognizer;
+                    if (r.resultState === 'Valid') {
+                         let doc = r.documentNumber || r.mrz.documentNumber;
+                         if(doc) {
+                             cerrarCamara();
+                             verificarCedula(doc.replace(/[^0-9]/g, ''));
+                         }
                     }
                 });
 
-            } catch (err) {
-                console.error(err);
-                alert("Error técnico: " + err.message);
-                stopCamera();
-            }
-        }
+                // Cuando carga, ocultar loader
+                el.addEventListener('ready', () => {
+                    document.getElementById('loader').style.display = 'none';
+                });
 
-        function stopCamera() {
-            if (videoRecognizer) { videoRecognizer.releaseVideoFeed(); videoRecognizer = null; }
-            if (sdkRunner) { sdkRunner = null; }
-            location.reload();
-        }
+                el.addEventListener('fatalError', (ev) => {
+                    alert("Error SDK: " + ev.detail.message);
+                    cerrarCamara();
+                });
 
-        // --- LOGICA NEGOCIO ---
-        async function procesarCedula(cedula) {
-            const modal = document.getElementById('modal');
-            const box = document.getElementById('modal-box');
-            modal.style.display = 'flex';
-            box.innerHTML = '<h3>⏳ Verificando '+cedula+'...</h3>';
+                el.addEventListener('scanError', (ev) => {
+                    if(ev.detail.code === "LicenseError") alert("Error Licencia.");
+                });
 
-            try {
-                const res = await fetch(API+'/api/verificar/'+cedula);
-                const d = await res.json();
-
-                if(d.estado === 'NUEVO') {
-                    box.innerHTML = '<h1 style="color:red">X</h1><h3>NO REGISTRADO</h3><button class="btn btn-blue" onclick="stopCamera()">OK</button>';
-                } else if(d.estado === 'YA_VOTO') {
-                    box.innerHTML = '<h1 style="color:orange">⚠️</h1><h3>YA VOTÓ</h3><p>'+d.datos.nombre_coordinador+'</p><button class="btn btn-blue" onclick="stopCamera()">OK</button>';
-                } else {
-                    await fetch(API+'/api/referidos/votar/'+cedula, {method:'PUT'});
-                    box.innerHTML = '<h1 style="color:green">✅</h1><h3>EXITOSO</h3><p>'+d.datos.nombre_completo+'</p><button class="btn btn-blue" onclick="stopCamera()">SIGUIENTE</button>';
-                }
             } catch(e) {
-                box.innerHTML = 'Error conexión';
-                setTimeout(stopCamera, 2000);
+                alert("No diste permiso de cámara.");
+                cerrarCamara();
             }
         }
 
-        async function login() {
-            const u = document.getElementById('u').value;
-            const p = document.getElementById('p').value;
+        function cerrarCamara() {
+            document.getElementById('layer-camera').style.display = 'none';
+            document.getElementById('layer-ui').style.display = 'block';
+            location.reload(); 
+        }
+
+        async function doLogin() {
+            const u = document.getElementById('l-user').value;
+            const p = document.getElementById('l-pass').value;
             const res = await fetch(API+'/api/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({usuario:u, password:p})});
             const data = await res.json();
             if(data.exito) {
                 localStorage.setItem('user', JSON.stringify(data.usuario));
-                mostrarDashboard(data.usuario);
-            } else alert('Error credenciales');
+                checkSession();
+            } else alert('Error Login');
+        }
+
+        function checkSession() {
+            const s = localStorage.getItem('user');
+            if(s) {
+                currentUser = JSON.parse(s);
+                document.getElementById('u-name').innerText = currentUser.nombres;
+                verDashboard();
+            }
+        }
+        function logout() { localStorage.clear(); location.reload(); }
+
+        async function guardar() {
+            const data = { nombre: document.getElementById('r-nom').value, num_doc: document.getElementById('r-ced').value, responsable_id: currentUser.id };
+            await fetch(API+'/api/crear_referido', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+            alert('Guardado'); document.getElementById('r-ced').value=''; verDashboard();
         }
 
         async function cargarStats() {
             const res = await fetch(API+'/api/dashboard/stats');
             const d = await res.json();
-            document.getElementById('st-t').innerText = d.total;
-            document.getElementById('st-v').innerText = d.votos;
+            document.getElementById('s-total').innerText = d.total;
+            document.getElementById('s-votos').innerText = d.votos;
         }
 
-        function logout() { localStorage.clear(); location.reload(); }
+        async function verificarCedula(cedula) {
+            const ov = document.getElementById('modal-overlay');
+            const box = document.getElementById('modal-box');
+            ov.style.display = 'flex'; box.innerHTML = '<h3>Verificando '+cedula+'...</h3>';
+            
+            const res = await fetch(API+'/api/verificar/'+cedula);
+            const d = await res.json();
+            
+            if(d.estado === 'NUEVO') box.innerHTML = '<h1 style="color:red">X</h1><h3>NO ESTÁ</h3><button class="btn btn-blue" onclick="location.reload()">OK</button>';
+            else if(d.estado === 'YA_VOTO') box.innerHTML = '<h1 style="color:orange">⚠️</h1><h3>YA VOTÓ</h3><p>'+d.datos.nombre_coordinador+'</p><button class="btn btn-blue" onclick="location.reload()">OK</button>';
+            else {
+                await fetch(API+'/api/referidos/votar/'+cedula, {method:'PUT'});
+                box.innerHTML = '<h1 style="color:green">✅</h1><h3>REGISTRADO</h3><p>'+d.datos.nombre_completo+'</p><button class="btn btn-blue" onclick="location.reload()">OK</button>';
+            }
+        }
 
-        window.onload = () => {
-            if(localStorage.getItem('user')) mostrarDashboard(JSON.parse(localStorage.getItem('user')));
-        };
+        window.onload = checkSession;
     </script>
 </body>
 </html>
