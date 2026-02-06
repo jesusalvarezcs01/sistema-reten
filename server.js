@@ -13,7 +13,7 @@ const pool = new Pool({
 });
 
 // =================================================================
-// V16: TECNOLOGÍA LIGERA (CÓDIGO DE BARRAS / HTML5-QRCODE)
+// V17: ESCÁNER MULTIFORMATO (BARRAS + PDF417)
 // =================================================================
 const APP_HTML = `
 <!DOCTYPE html>
@@ -43,9 +43,22 @@ const APP_HTML = `
         /* SCANNER AREA */
         #reader { width: 100%; height: 100%; background: black; }
         
-        /* OVERLAY */
+        /* GUIAS VISUALES */
         .scan-header { position: absolute; top: 0; left: 0; width: 100%; padding: 15px; display: flex; justify-content: space-between; z-index: 30; background: rgba(0,0,0,0.5); color: white; }
-        .scan-instruction { position: absolute; bottom: 50px; width: 100%; text-align: center; color: white; font-weight: bold; background: rgba(0,0,0,0.5); padding: 10px; z-index: 30; }
+        
+        .scan-box-guide {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 80%; height: 150px; border: 2px solid #28a745; 
+            box-shadow: 0 0 0 9999px rgba(0,0,0,0.5);
+            z-index: 25; pointer-events: none; border-radius: 10px;
+        }
+        .scan-line {
+            width: 100%; height: 2px; background: red; position: absolute; top: 50%;
+            animation: scanAnim 2s infinite;
+        }
+        @keyframes scanAnim { 0% {top:10%} 50% {top:90%} 100% {top:10%} }
+
+        .scan-instruction { position: absolute; bottom: 80px; width: 100%; text-align: center; color: white; font-weight: bold; z-index: 30; text-shadow: 1px 1px 2px black; }
 
         /* MODAL */
         #modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 100; display: none; align-items: center; justify-content: center; }
@@ -72,8 +85,8 @@ const APP_HTML = `
             <div class="card" onclick="irRegistro()"><h3>📝 REGISTRO MANUAL</h3></div>
             
             <div class="card" onclick="activarCamara()" style="border: 3px solid #28a745;">
-                <h3 style="color:#28a745">📷 ESCÁNER RÁPIDO</h3>
-                <p>Lee el Código de Barras (Atrás)</p>
+                <h3 style="color:#28a745">📷 ESCANEAR CÉDULA</h3>
+                <p>Apunta al Código de Barras</p>
             </div>
             
             <div class="card"><h3>Total: <span id="s-total">0</span> | Votos: <span id="s-votos">0</span></h3></div>
@@ -90,14 +103,18 @@ const APP_HTML = `
 
     <div id="layer-camera">
         <div class="scan-header">
-            <span>Escáner V16</span>
+            <span>Escáner V17</span>
             <button onclick="cerrarCamara()" style="background:white; color:black; border:none; padding:5px 15px; border-radius:15px;">X</button>
         </div>
         
         <div id="reader"></div>
         
+        <div class="scan-box-guide">
+            <div class="scan-line"></div>
+        </div>
+        
         <div class="scan-instruction">
-            APUNTA AL CÓDIGO DE BARRAS<br>(Parte de atrás de la Cédula)
+            CENTRA EL CÓDIGO DE BARRAS<br>EN EL RECUADRO VERDE
         </div>
     </div>
 
@@ -119,48 +136,59 @@ const APP_HTML = `
             document.getElementById('view-registro').style.display = 'block';
         }
 
-        // --- CÁMARA LIGERA (HTML5-QRCODE) ---
+        // --- CÁMARA MULTIFORMATO ---
         function activarCamara() {
             document.getElementById('layer-ui').style.display = 'none';
             document.getElementById('layer-camera').style.display = 'flex';
             
             html5QrCode = new Html5Qrcode("reader");
             
-            const config = { fps: 10, qrbox: { width: 250, height: 150 } };
+            // CONFIGURACIÓN CLAVE: RECTANGULO + BARRAS
+            const config = { 
+                fps: 15, // Más rápido
+                qrbox: { width: 300, height: 150 }, // Rectangular para barras
+                aspectRatio: 1.0,
+                experimentalFeatures: {
+                    useBarCodeDetectorIfSupported: true
+                }
+            };
             
-            // Pedimos cámara trasera
-            html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, onScanFailure)
-            .catch(err => {
-                alert("Error iniciando cámara: " + err);
+            // Nota: Html5Qrcode por defecto escanea TODO si no se limita.
+            // Con useBarCodeDetectorIfSupported intentamos usar el hardware del celular.
+
+            html5QrCode.start(
+                { facingMode: "environment" }, 
+                config, 
+                onScanSuccess, 
+                onScanFailure
+            ).catch(err => {
+                alert("Error: " + err);
                 cerrarCamara();
             });
         }
 
         function onScanSuccess(decodedText, decodedResult) {
-            // DETECTAMOS CUALQUIER NUMERO LARGO EN EL CODIGO DE BARRAS
-            // Las cedulas colombianas en PDF417 tienen mucha basura, buscamos la cedula
-            console.log("Escaneado: " + decodedText);
+            console.log("Detectado: " + decodedText);
             
-            // Regex simple para encontrar secuencias de numeros de 6 a 10 digitos
-            // Ajustamos para intentar pescar la cedula en el mar de texto del PDF417
-            let matches = decodedText.match(/\\d{6,10}/g);
+            // FILTRO INTELIGENTE PARA CEDULAS
+            // Buscamos cualquier secuencia numérica larga
+            let numbers = decodedText.match(/\\d+/g);
             
-            if (matches) {
-                // Asumimos que la cédula es el número más largo o el primero válido
-                // En PDF417 Colombiano, la cedula suele estar al principio tras algunos ceros
-                // Para simplificar, tomamos el primer numero valido encontrado
-                let cedulaPosible = matches.find(n => n.length >= 6 && n.length <= 10 && parseInt(n) > 100000);
+            if (numbers) {
+                // Filtramos números que parezcan cédulas (entre 6 y 10 dígitos)
+                // Ignoramos números cortos o códigos de barras de productos (13 digitos) si es posible
+                let cedula = numbers.find(n => n.length >= 6 && n.length <= 10 && parseInt(n) > 100000);
                 
-                if(cedulaPosible) {
+                if(cedula) {
                     html5QrCode.stop().then(() => {
-                        verificarCedula(cedulaPosible);
+                        verificarCedula(cedula);
                     });
                 }
             }
         }
 
         function onScanFailure(error) {
-            // No hacer nada, sigue escaneando
+            // Sigue intentando...
         }
 
         function cerrarCamara() {
@@ -169,9 +197,7 @@ const APP_HTML = `
                     document.getElementById('layer-camera').style.display = 'none';
                     document.getElementById('layer-ui').style.display = 'block';
                     html5QrCode.clear();
-                }).catch(err => {
-                    location.reload();
-                });
+                }).catch(err => location.reload());
             } else {
                 location.reload();
             }
@@ -181,12 +207,20 @@ const APP_HTML = `
         async function verificarCedula(cedula) {
             const box = document.getElementById('modal-box');
             document.getElementById('modal-overlay').style.display = 'flex';
-            box.innerHTML = '<h3>¿Es esta la cédula?</h3><h1>'+cedula+'</h1><br><button class="btn btn-green" onclick="procesarVerdadera(\\''+cedula+'\\')">SÍ, VERIFICAR</button><button class="btn btn-red" onclick="cerrarModalCam()">NO, REINTENTAR</button>';
+            
+            // PREGUNTA DE SEGURIDAD
+            box.innerHTML = \`
+                <h3>Cédula Detectada</h3>
+                <h1 style="font-size:2.5rem; margin:10px 0;">\${cedula}</h1>
+                <p>¿Es correcta?</p>
+                <button class="btn btn-green" onclick="procesarVerdadera('\${cedula}')">SÍ, VERIFICAR</button>
+                <button class="btn btn-red" onclick="cerrarModalCam()">NO, REINTENTAR</button>
+            \`;
         }
         
         function cerrarModalCam() {
              document.getElementById('modal-overlay').style.display = 'none';
-             activarCamara(); // Volver a escanear
+             activarCamara(); 
         }
 
         async function procesarVerdadera(cedula) {
@@ -198,12 +232,12 @@ const APP_HTML = `
                 const d = await res.json();
 
                 if(d.estado === 'NUEVO') {
-                    box.innerHTML = '<h1 style="color:red">X</h1><h3>NO REGISTRADO</h3><button class="btn btn-blue" onclick="cerrarTodo()">OK</button>';
+                    box.innerHTML = '<h1 style="color:red; font-size:3rem;">X</h1><h3>NO ESTÁ EN LISTA</h3><button class="btn btn-blue" onclick="cerrarTodo()">ACEPTAR</button>';
                 } else if(d.estado === 'YA_VOTO') {
-                    box.innerHTML = '<h1 style="color:orange">⚠️</h1><h3>YA VOTÓ</h3><p>'+d.datos.nombre_coordinador+'</p><button class="btn btn-blue" onclick="cerrarTodo()">OK</button>';
+                    box.innerHTML = '<h1 style="color:orange; font-size:3rem;">⚠️</h1><h3>YA VOTÓ</h3><p>Responsable: '+d.datos.nombre_coordinador+'</p><button class="btn btn-blue" onclick="cerrarTodo()">ACEPTAR</button>';
                 } else {
                     await fetch(API+'/api/referidos/votar/'+cedula, {method:'PUT'});
-                    box.innerHTML = '<h1 style="color:green">✅</h1><h3>VOTO REGISTRADO</h3><p>'+d.datos.nombre_completo+'</p><button class="btn btn-blue" onclick="cerrarTodo()">OK</button>';
+                    box.innerHTML = '<h1 style="color:green; font-size:3rem;">✅</h1><h3>REGISTRADO</h3><p>'+d.datos.nombre_completo+'</p><p>Mesa: '+d.datos.mesa_votacion+'</p><button class="btn btn-blue" onclick="cerrarTodo()">ACEPTAR</button>';
                 }
             } catch(e) {
                 alert("Error de red");
@@ -218,7 +252,7 @@ const APP_HTML = `
             cargarStats();
         }
 
-        // --- LOGIN/SESSION ---
+        // --- LOGIN ---
         async function doLogin() {
             const u = document.getElementById('l-user').value;
             const p = document.getElementById('l-pass').value;
