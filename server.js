@@ -13,7 +13,7 @@ const pool = new Pool({
 });
 
 // =================================================================
-// VERSIÓN V8: SERVIDORES RÁPIDOS (JSDELIVR) + DEBUG AVANZADO
+// VERSIÓN V9: JSDELIVR + CONFIGURACIÓN MANUAL DE WASM
 // =================================================================
 const APP_HTML = `
 <!DOCTYPE html>
@@ -23,7 +23,7 @@ const APP_HTML = `
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Sistema Electoral</title>
     
-    <script src="https://cdn.jsdelivr.net/npm/@microblink/blinkid-in-browser-sdk@6.1.0/ui/dist/blinkid-in-browser/blinkid-in-browser.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@microblink/blinkid-in-browser-sdk@5.8.0/ui/dist/blinkid-in-browser/blinkid-in-browser.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     
     <style>
@@ -110,7 +110,7 @@ const APP_HTML = `
 
     <div id="layer-camera">
         <div class="cam-header">
-            <b>Diagnóstico V8</b>
+            <b>Diagnóstico V9</b>
             <button onclick="cerrarCamara()" style="background:white; color:black; border:none; padding:5px 15px; border-radius:15px;">X</button>
         </div>
         
@@ -155,13 +155,7 @@ const APP_HTML = `
                 log("2. Permiso OK. Iniciando carga SDK.", 'success');
                 stream.getTracks().forEach(t => t.stop());
                 
-                // 2. Iniciar SDK con Timeout
-                const timer = setTimeout(() => {
-                    log("ALERTA: Tarda mucho. Revisa tu internet.", 'error');
-                    alert("El escáner está tardando demasiado en cargar. Posible conexión lenta.");
-                }, 15000); // 15 segundos de tolerancia
-
-                iniciarSDK(timer);
+                iniciarSDK();
                 
             } catch(e) {
                 log("ERROR FATAL: Cámara denegada.", 'error');
@@ -169,16 +163,16 @@ const APP_HTML = `
             }
         }
 
-        function iniciarSDK(timer) {
-            log("3. Configurando SDK 6.1.0 (JSDelivr)...", 'info');
+        function iniciarSDK() {
+            log("3. Configurando SDK 5.8.0 (JSDelivr)...", 'info');
             const el = document.getElementById('scanner-el');
             
             try {
                 el.licenseKey = LICENCIA;
                 el.recognizers = ['BlinkIdRecognizer'];
                 
-                // CAMBIO CLAVE: Usamos JSDelivr que es más rápido en LATAM
-                el.engineLocation = "https://cdn.jsdelivr.net/npm/@microblink/blinkid-in-browser-sdk@6.1.0/resources/";
+                // CAMBIO CLAVE: Usamos JSDelivr para la versión 5.8.0
+                el.engineLocation = "https://cdn.jsdelivr.net/npm/@microblink/blinkid-in-browser-sdk@5.8.0/resources/";
                 
                 log("4. Engine URL: " + el.engineLocation);
                 
@@ -196,13 +190,11 @@ const APP_HTML = `
 
                 // Este evento dispara cuando el motor YA cargó y está listo
                 el.addEventListener('ready', () => {
-                    clearTimeout(timer);
                     log("5. MOTOR LISTO Y CARGADO!", 'success');
                     document.getElementById('loader').style.display = 'none';
                 });
 
                 el.addEventListener('fatalError', (ev) => {
-                    clearTimeout(timer);
                     log("ERROR SDK: " + ev.detail.message, 'error');
                 });
 
@@ -277,58 +269,3 @@ const APP_HTML = `
     </script>
 </body>
 </html>
-`;
-
-// =================================================================
-// BACKEND
-// =================================================================
-app.get('/', (req, res) => res.send(APP_HTML));
-
-app.post('/api/login', async (req, res) => {
-  const { usuario, password } = req.body;
-  const r = await pool.query('SELECT * FROM usuarios WHERE numero_documento = $1 AND password = $2', [usuario, password]);
-  if(r.rows.length > 0) res.json({exito:true, usuario:r.rows[0]});
-  else res.json({exito:false});
-});
-
-app.get('/api/dashboard/stats', async (req, res) => {
-  const t = await pool.query('SELECT COUNT(*) FROM referidos');
-  const v = await pool.query('SELECT COUNT(*) FROM referidos WHERE estado_voto = true');
-  res.json({ total: t.rows[0].count, votos: v.rows[0].count });
-});
-
-app.post('/api/crear_referido', async (req, res) => {
-  const { nombre, num_doc, responsable_id } = req.body;
-  try {
-    const chk = await pool.query('SELECT * FROM referidos WHERE numero_documento = $1', [num_doc]);
-    if(chk.rows.length>0) return res.json({exito:false, mensaje:'DUPLICADO'});
-    await pool.query('INSERT INTO referidos (nombre_completo, numero_documento, responsable_id) VALUES ($1, $2, $3)', [nombre, num_doc, responsable_id]);
-    res.json({exito:true});
-  } catch(e) { res.json({exito:false, mensaje:e.message}); }
-});
-
-app.get('/api/verificar/:cedula', async (req, res) => {
-  const { cedula } = req.params;
-  const r = await pool.query(`SELECT r.*, u.nombres as nombre_coordinador FROM referidos r JOIN usuarios u ON r.responsable_id = u.id WHERE r.numero_documento = $1`, [cedula]);
-  if (r.rows.length === 0) return res.json({ estado: 'NUEVO' });
-  if (r.rows[0].estado_voto) return res.json({ estado: 'YA_VOTO', datos: r.rows[0] });
-  return res.json({ estado: 'REGISTRADO', datos: r.rows[0] });
-});
-
-app.put('/api/referidos/votar/:cedula', async (req, res) => {
-  await pool.query('UPDATE referidos SET estado_voto = true WHERE numero_documento = $1', [req.params.cedula]);
-  res.json({ exito: true });
-});
-
-app.get('/setup_master_v3', async (req, res) => {
-  try {
-    await pool.query('DROP TABLE IF EXISTS referidos; DROP TABLE IF EXISTS usuarios;');
-    await pool.query(`CREATE TABLE usuarios (id SERIAL PRIMARY KEY, nombres VARCHAR(100), numero_documento VARCHAR(20), password VARCHAR(100), rol VARCHAR(20));`);
-    await pool.query(`CREATE TABLE referidos (id SERIAL PRIMARY KEY, nombre_completo VARCHAR(150), numero_documento VARCHAR(20), mesa_votacion VARCHAR(10), estado_voto BOOLEAN DEFAULT FALSE, responsable_id INTEGER);`);
-    await pool.query(`INSERT INTO usuarios (nombres, numero_documento, password, rol) VALUES ('Admin', 'admin', 'admin2026', 'ADMIN');`);
-    res.send("RESET OK");
-  } catch(e) { res.send(e.message); }
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`SERVER ON ${PORT}`));
