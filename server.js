@@ -13,7 +13,7 @@ const pool = new Pool({
 });
 
 // =================================================================
-// SOLUCIÓN V5: ARRANQUE MANUAL DE CÁMARA
+// CÓDIGO MAESTRO V6: FORZADO DE PERMISOS + MICROBLINK
 // =================================================================
 const APP_HTML = `
 <!DOCTYPE html>
@@ -23,99 +23,99 @@ const APP_HTML = `
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Sistema Electoral</title>
     
-    <script src="https://unpkg.com/@microblink/blinkid-in-browser-sdk@6.1.0/ui/dist/blinkid-in-browser/blinkid-in-browser.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@microblink/blinkid-in-browser-sdk@6.1.0/ui/dist/blinkid-in-browser/blinkid-in-browser.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     
     <style>
         body, html { height: 100%; margin: 0; padding: 0; font-family: sans-serif; background: #f0f2f5; overflow: hidden; }
 
-        /* --- CAPAS DE LA APP --- */
-        #ui-layer {
+        /* CAPA 1: UI GLOBAL */
+        #layer-ui {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             overflow-y: auto; z-index: 10; background: #f4f7f6;
         }
 
-        #camera-layer {
+        /* CAPA 2: CÁMARA (NEGRA) */
+        #layer-camera {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: #000; z-index: 9999;
-            display: none; /* Oculto por defecto */
+            display: none; /* Oculto */
             flex-direction: column;
         }
 
-        /* COMPONENTES */
-        .card { background: white; width: 90%; max-width: 400px; padding: 20px; border-radius: 10px; margin: 20px auto; text-align: center; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        /* ESTILOS GENERALES */
+        .card { background: white; width: 90%; max-width: 400px; padding: 20px; border-radius: 12px; margin: 20px auto; text-align: center; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
         .btn { width: 100%; padding: 15px; border: none; border-radius: 8px; font-weight: bold; font-size: 16px; margin-top: 10px; color: white; cursor: pointer; }
         .btn-blue { background: #003366; }
         .btn-green { background: #28a745; }
-        
-        input { width: 100%; padding: 12px; margin-bottom: 10px; text-align: center; border: 1px solid #ddd; border-radius: 5px; box-sizing:border-box; }
+        .btn-red { background: #dc3545; }
+        input { width: 100%; padding: 12px; margin-bottom: 10px; text-align: center; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
 
-        /* HEADER CAMARA */
-        .scan-header {
+        /* CABECERA CAMARA */
+        .cam-header {
             position: absolute; top: 0; left: 0; width: 100%; height: 60px;
-            background: rgba(0,0,0,0.8); z-index: 10000;
+            background: rgba(0,0,0,0.6); z-index: 10000;
             display: flex; align-items: center; justify-content: space-between; padding: 0 15px; box-sizing: border-box; color: white;
         }
 
-        /* BOTÓN FLOTANTE PARA FORZAR CAMARA */
-        #btn-force-start {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            z-index: 99999; background: #28a745; color: white; padding: 20px 40px;
-            border-radius: 50px; font-weight: bold; border: 2px solid white;
-            box-shadow: 0 0 20px rgba(0,255,0,0.5); cursor: pointer;
-            display: none; /* Se muestra si no arranca sola */
-        }
-        
-        /* ESTADO DE CARGA */
-        #scan-status {
-            position: absolute; bottom: 100px; width: 100%; text-align: center; color: white; font-weight: bold; z-index: 10000;
+        /* COMPONENTE MICROBLINK */
+        blinkid-in-browser { width: 100%; height: 100%; display: block; }
+
+        /* LOADING CÁMARA */
+        #cam-msg {
+            position: absolute; top: 50%; width: 100%; text-align: center; color: white;
+            transform: translateY(-50%); z-index: 9000;
         }
 
-        /* MICROBLINK ELEMENT */
-        blinkid-in-browser {
-            width: 100%; height: 100%; display: block;
+        /* MODAL RESULTADOS */
+        #modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9); z-index: 20000;
+            display: none; align-items: center; justify-content: center;
         }
-
-        /* MODAL */
-        #modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 20000; display: none; align-items: center; justify-content: center; }
-        #modal-box { background: white; padding: 25px; border-radius: 10px; width: 85%; max-width: 350px; text-align: center; }
     </style>
 </head>
 <body>
 
     <script>
+        // TU LICENCIA
         const LICENCIA = "sRwCABpzaXN0ZW1hLXJldGVuLm9ucmVuZGVyLmNvbQZsZXlKRGNtVmhkR1ZrVDI0aU9qRTNOekF6TkRBNE56UXhORE1zSWtOeVpXRjBaV1JHYjNJaU9pSmhOVFkyT1RNeFppMWpNbVEyTFRRMk1UY3RZalF3T0MwM09Ea3dNVFJrT0RFMVpqQWlmUT09Xx8uagCPC8T3b3Qa3oHIoGgMBAgsat/gyX1+szaTbpLSxKbea+5LfnKoV2qjcJo5KX2BZfrFUBxFP093X0F3XpjecVfoJx+llc9E4c5k8MBT59V+d+ll6wtjn1EnjA==";
     </script>
 
-    <div id="ui-layer">
+    <div id="layer-ui">
         
         <div id="view-login" style="height: 100vh; display: flex; align-items: center; justify-content: center; background: #003366;">
             <div class="card">
                 <h2>CONTROL ELECTORAL</h2>
-                <input type="number" id="l-user" placeholder="Usuario">
+                <input type="number" id="l-user" placeholder="Cédula Usuario">
                 <input type="password" id="l-pass" placeholder="Contraseña">
-                <button class="btn btn-green" onclick="login()">ENTRAR</button>
-                <p id="l-msg" style="color:red; display:none;">Error de acceso</p>
+                <button class="btn btn-green" onclick="doLogin()">INGRESAR</button>
+                <p id="l-error" style="color:red; display:none; margin-top:10px;">Datos incorrectos</p>
             </div>
         </div>
 
-        <div id="view-menu" style="display:none; padding-top: 50px;">
-            <div style="background:#003366; color:white; padding:15px; position:fixed; top:0; width:100%; z-index:100; box-sizing:border-box; display:flex; justify-content:space-between;">
+        <div id="view-dashboard" style="display:none; padding-top: 60px;">
+            <div style="background:#003366; color:white; padding:15px; position:fixed; top:0; left:0; width:100%; z-index:100; display:flex; justify-content:space-between; box-sizing:border-box;">
                 <b id="u-name">Usuario</b>
-                <span onclick="logout()">SALIR</span>
-            </div>
-            
-            <div class="card" onclick="irRegistro()">
-                <h3>📝 REGISTRO MANUAL</h3>
+                <span onclick="logout()" style="text-decoration:underline;">SALIR</span>
             </div>
 
-            <div class="card" onclick="prepararCamara()" style="border: 3px solid #28a745;">
-                <h3 style="color:#28a745;">📷 DÍA D (ESCÁNER)</h3>
+            <div class="card" onclick="irRegistro()">
+                <h3>📝 REGISTRO MANUAL</h3>
+                <p>Ingreso sin escáner</p>
+            </div>
+
+            <div class="card" onclick="iniciarSecuenciaCamara()" style="border: 3px solid #28a745;">
+                <h3 style="color:#28a745">📷 OPERACIÓN DÍA D</h3>
+                <p>Escáner de Cédulas</p>
             </div>
 
             <div class="card">
-                <h3>📊 RESUMEN</h3>
-                <h1><span id="st-votos" style="color:green">0</span> / <span id="st-total">0</span></h1>
+                <h3>Resumen</h3>
+                <div style="display:flex; justify-content:space-around; font-size:1.2rem;">
+                    <div><b>Total:</b> <span id="s-total">0</span></div>
+                    <div style="color:green;"><b>Votos:</b> <span id="s-votos">0</span></div>
+                </div>
             </div>
         </div>
 
@@ -125,139 +125,191 @@ const APP_HTML = `
                 <input type="text" id="r-nom" placeholder="Nombre">
                 <input type="number" id="r-ced" placeholder="Cédula">
                 <button class="btn btn-blue" onclick="guardar()">GUARDAR</button>
-                <button class="btn btn-red" onclick="verMenu()">CANCELAR</button>
+                <button class="btn btn-red" onclick="verDashboard()">VOLVER</button>
             </div>
         </div>
     </div>
 
-    <div id="camera-layer">
-        <div class="scan-header">
-            <b>Escáner Cédulas</b>
-            <button onclick="cerrarCamara()" style="background:white; color:black; border:none; padding:5px 15px; border-radius:15px;">X</button>
+    <div id="layer-camera">
+        <div class="cam-header">
+            <span>Escaneando...</span>
+            <button onclick="cerrarCamara()" style="background:white; color:black; border:none; padding:5px 15px; border-radius:20px; font-weight:bold;">X</button>
+        </div>
+        
+        <div id="cam-msg">
+            <i class="fas fa-spinner fa-spin fa-3x"></i><br><br>
+            <span id="cam-txt">Inicializando...</span>
         </div>
 
-        <button id="btn-force-start" onclick="forzarInicioCamara()">TOCA PARA INICIAR CÁMARA</button>
-
-        <div id="scan-status">Esperando motor...</div>
-
         <blinkid-in-browser
-            id="my-blinkid"
-            engine-location="https://unpkg.com/@microblink/blinkid-in-browser-sdk@6.1.0/resources/"
+            id="scanner-el"
+            engine-location="https://cdn.jsdelivr.net/npm/@microblink/blinkid-in-browser-sdk@6.1.0/resources/"
         ></blinkid-in-browser>
     </div>
 
-    <div id="modal">
-        <div id="modal-box"></div>
+    <div id="modal-overlay">
+        <div class="card" id="modal-content"></div>
     </div>
 
     <script>
         const API = window.location.origin;
         let currentUser = null;
 
-        // --- MANEJO DE VISTAS ---
-        function verMenu() {
-            document.getElementById('view-login').style.display = 'none';
-            document.getElementById('view-registro').style.display = 'none';
-            document.getElementById('view-menu').style.display = 'block';
-            cargarStats();
-        }
-        function irRegistro() {
-            document.getElementById('view-menu').style.display = 'none';
-            document.getElementById('view-registro').style.display = 'block';
-        }
-
-        // --- LOGICA CAMARA ---
-        function prepararCamara() {
-            document.getElementById('ui-layer').style.display = 'none';
-            document.getElementById('camera-layer').style.display = 'flex';
-            
-            // Mostrar botón de inicio manual para garantizar interacción del usuario (requisito de navegadores)
-            document.getElementById('btn-force-start').style.display = 'block';
-            document.getElementById('scan-status').innerText = "Toca el botón verde para activar";
-        }
-
-        async function forzarInicioCamara() {
-            const btn = document.getElementById('btn-force-start');
-            const status = document.getElementById('scan-status');
-            const el = document.querySelector('blinkid-in-browser');
-
-            btn.style.display = 'none';
-            status.innerText = "⏳ Cargando motor inteligente... (Esto puede tardar unos segundos)";
+        // --- 1. SECUENCIA DE ARRANQUE CÁMARA (CRÍTICO) ---
+        async function iniciarSecuenciaCamara() {
+            // A. Cambiar UI inmediatamente
+            document.getElementById('layer-ui').style.display = 'none';
+            document.getElementById('layer-camera').style.display = 'flex';
+            document.getElementById('cam-txt').innerText = "Solicitando permiso de cámara...";
 
             try {
-                // Configurar
-                el.licenseKey = LICENCIA;
-                el.recognizers = ['BlinkIdRecognizer'];
+                // B. FORZAR PERMISO NATIVO (Truco para despertar al navegador)
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
                 
-                // Configuración de UI para que ocupe todo
-                el.uiSettings = { 
-                    enableFullScreen: false, // Lo manejamos nosotros
-                    showOverlay: true
-                };
-
-                // LISTENERS
-                el.addEventListener('scanSuccess', (ev) => {
-                    const results = ev.detail.recognizers.BlinkIdRecognizer;
-                    if (results.resultState === 'Valid') {
-                        let doc = results.documentNumber || results.mrz.documentNumber || results.mrz.primaryId;
-                        if(doc) {
-                            let cedula = doc.replace(/[^0-9]/g, '');
-                            if(cedula.length > 5) {
-                                // DETENER Y PROCESAR
-                                cerrarCamara();
-                                verificarCedula(cedula);
-                            }
-                        }
-                    }
-                });
-
-                el.addEventListener('fatalError', (ev) => {
-                    alert("Error: " + ev.detail.message);
-                    cerrarCamara();
-                });
-
-                el.addEventListener('scanError', (ev) => {
-                     if(ev.detail.code === "LicenseError") alert("Error de Licencia con el dominio.");
-                });
-
-                // Hack para forzar renderizado
-                status.innerText = "🎥 Solicitando Permiso de Cámara...";
+                // Si llegamos aquí, dio permiso. Cerramos este stream temporal.
+                stream.getTracks().forEach(track => track.stop());
                 
-                // Esperamos un momento para que el componente monte
-                setTimeout(() => {
-                    status.style.display = 'none'; 
-                }, 3000);
+                // C. Ahora sí, arrancamos el motor pesado
+                document.getElementById('cam-txt').innerText = "Cargando motor de IA...";
+                arrancarMicroblink();
 
-            } catch (e) {
-                alert("Error al iniciar: " + e.message);
+            } catch (err) {
+                alert("❌ No diste permiso de cámara. No podemos escanear.");
                 cerrarCamara();
             }
         }
 
-        function cerrarCamara() {
-            document.getElementById('camera-layer').style.display = 'none';
-            document.getElementById('ui-layer').style.display = 'block';
-            // Recargar para limpiar memoria es recomendable en móviles
-             location.reload(); 
+        function arrancarMicroblink() {
+            const el = document.getElementById('scanner-el');
+            
+            // Configuración
+            el.licenseKey = LICENCIA;
+            el.recognizers = ['BlinkIdRecognizer'];
+            el.uiSettings = { 
+                enableFullScreen: false, // Controlamos nosotros el tamaño
+                showOverlay: true 
+            };
+
+            // Eventos
+            el.addEventListener('scanSuccess', (ev) => {
+                const results = ev.detail.recognizers.BlinkIdRecognizer;
+                if (results.resultState === 'Valid') {
+                    const docNumber = results.documentNumber || results.mrz.documentNumber || results.mrz.primaryId;
+                    if(docNumber) {
+                        let cedula = docNumber.replace(/[^0-9]/g, ''); // Limpiar
+                        if(cedula.length > 5) {
+                            cerrarCamara(); // Éxito
+                            procesarCedula(cedula);
+                        }
+                    }
+                }
+            });
+
+            el.addEventListener('fatalError', (ev) => {
+                alert("Error del motor: " + ev.detail.message);
+                cerrarCamara();
+            });
+
+            el.addEventListener('scanError', (ev) => {
+                 if(ev.detail.code === "LicenseError") alert("Error de Licencia (Dominio incorrecto)");
+            });
+
+            // Ocultar mensaje de carga tras unos segundos
+            setTimeout(() => { document.getElementById('cam-msg').style.display = 'none'; }, 2000);
         }
 
-        // --- CONEXION API ---
-        async function login() {
+        function cerrarCamara() {
+            document.getElementById('layer-camera').style.display = 'none';
+            document.getElementById('layer-ui').style.display = 'block';
+            // Recargar para limpiar la memoria de video (importante en iOS)
+            window.location.reload();
+        }
+
+        // --- 2. LÓGICA DE NEGOCIO ---
+        
+        async function procesarCedula(cedula) {
+            mostrarModal('loading', 'Verificando '+cedula);
+            
+            try {
+                const res = await fetch(API + '/api/verificar/' + cedula);
+                const data = await res.json();
+
+                if(data.estado === 'NUEVO') {
+                    mostrarModal('error', 'NO REGISTRADO', 'Cédula: '+cedula);
+                } else if(data.estado === 'YA_VOTO') {
+                    mostrarModal('warning', 'YA VOTÓ', 'Resp: '+data.datos.nombre_coordinador);
+                } else {
+                    // Registrar voto
+                    await fetch(API + '/api/referidos/votar/' + cedula, {method:'PUT'});
+                    mostrarModal('success', 'VOTO REGISTRADO', data.datos.nombre_completo);
+                }
+            } catch(e) {
+                mostrarModal('error', 'Error Conexión');
+            }
+        }
+
+        function mostrarModal(tipo, titulo, msg='') {
+            const ol = document.getElementById('modal-overlay');
+            const box = document.getElementById('modal-content');
+            ol.style.display = 'flex';
+            
+            let color = 'black';
+            if(tipo==='success') color = 'green';
+            if(tipo==='error') color = 'red';
+            if(tipo==='warning') color = 'orange';
+
+            if(tipo === 'loading') {
+                box.innerHTML = '<h3>⏳ '+titulo+'</h3>';
+            } else {
+                box.innerHTML = \`<h1 style="color:\${color}">\${tipo === 'success' ? '✅' : '⚠️'}</h1>
+                                <h3>\${titulo}</h3>
+                                <p>\${msg}</p>
+                                <button class="btn btn-blue" onclick="cerrarModal()">ACEPTAR</button>\`;
+            }
+        }
+
+        function cerrarModal() { 
+            document.getElementById('modal-overlay').style.display = 'none'; 
+            cargarStats();
+        }
+
+        // --- 3. LOGIN Y NAVEGACION ---
+        async function doLogin() {
             const u = document.getElementById('l-user').value;
             const p = document.getElementById('l-pass').value;
-            const res = await fetch(API + '/api/login', {
+            const res = await fetch(API+'/api/login', {
                 method:'POST', headers:{'Content-Type':'application/json'},
                 body:JSON.stringify({usuario:u, password:p})
             });
             const data = await res.json();
             if(data.exito) {
-                currentUser = data.usuario;
-                localStorage.setItem('user', JSON.stringify(currentUser));
-                document.getElementById('u-name').innerText = currentUser.nombres;
-                verMenu();
+                localStorage.setItem('user', JSON.stringify(data.usuario));
+                checkSession();
             } else {
-                document.getElementById('l-msg').style.display = 'block';
+                document.getElementById('l-error').style.display = 'block';
             }
+        }
+
+        function checkSession() {
+            const s = localStorage.getItem('user');
+            if(s) {
+                currentUser = JSON.parse(s);
+                document.getElementById('view-login').style.display = 'none';
+                document.getElementById('view-dashboard').style.display = 'block';
+                document.getElementById('u-name').innerText = currentUser.nombres;
+                cargarStats();
+            }
+        }
+
+        function logout() { localStorage.removeItem('user'); location.reload(); }
+        function verDashboard() {
+            document.getElementById('view-registro').style.display = 'none';
+            document.getElementById('view-dashboard').style.display = 'block';
+            cargarStats();
+        }
+        function irRegistro() {
+            document.getElementById('view-dashboard').style.display = 'none';
+            document.getElementById('view-registro').style.display = 'block';
         }
 
         async function guardar() {
@@ -266,52 +318,22 @@ const APP_HTML = `
                 num_doc: document.getElementById('r-ced').value,
                 responsable_id: currentUser.id
             };
-            await fetch(API+'/api/crear_referido', {
-                method:'POST', headers:{'Content-Type':'application/json'},
-                body:JSON.stringify(data)
-            });
+            await fetch(API+'/api/crear_referido', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
             alert('Guardado');
-            document.getElementById('r-ced').value = '';
-            verMenu();
+            document.getElementById('r-ced').value='';
+            verDashboard();
         }
 
         async function cargarStats() {
             const res = await fetch(API+'/api/dashboard/stats');
             const d = await res.json();
-            document.getElementById('st-total').innerText = d.total;
-            document.getElementById('st-votos').innerText = d.votos;
+            document.getElementById('s-total').innerText = d.total;
+            document.getElementById('s-votos').innerText = d.votos;
         }
 
-        async function verificarCedula(cedula) {
-            const modal = document.getElementById('modal');
-            const box = document.getElementById('modal-box');
-            modal.style.display = 'flex';
-            box.innerHTML = '<h3>Consultando '+cedula+'...</h3>';
+        // Init
+        window.onload = checkSession;
 
-            const res = await fetch(API+'/api/verificar/'+cedula);
-            const d = await res.json();
-
-            if(d.estado === 'NUEVO') {
-                box.innerHTML = '<h1 style="color:red">X</h1><h3>NO REGISTRADO</h3><button class="btn btn-red" onclick="closeModal()">CERRAR</button>';
-            } else if (d.estado === 'YA_VOTO') {
-                box.innerHTML = '<h1 style="color:orange">⚠️</h1><h3>YA VOTÓ</h3><p>Responsable: '+d.datos.nombre_coordinador+'</p><button class="btn btn-blue" onclick="closeModal()">CERRAR</button>';
-            } else {
-                await fetch(API+'/api/referidos/votar/'+cedula, {method:'PUT'});
-                box.innerHTML = '<h1 style="color:green">✅</h1><h3>VOTO EXITOSO</h3><p>'+d.datos.nombre_completo+'</p><button class="btn btn-green" onclick="closeModal()">ACEPTAR</button>';
-            }
-        }
-
-        function closeModal() { document.getElementById('modal').style.display = 'none'; }
-        function logout() { localStorage.clear(); location.reload(); }
-
-        // Auto login
-        window.onload = () => {
-            if(localStorage.getItem('user')) {
-                currentUser = JSON.parse(localStorage.getItem('user'));
-                document.getElementById('u-name').innerText = currentUser.nombres;
-                verMenu();
-            }
-        }
     </script>
 </body>
 </html>
