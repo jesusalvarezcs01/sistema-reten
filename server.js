@@ -7,14 +7,13 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
+// CONFIGURACION BASE DE DATOS
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
 });
 
-// =================================================================
-// VERSIÓN V9: JSDELIVR + CONFIGURACIÓN MANUAL DE WASM
-// =================================================================
+// HTML DE LA APLICACION (SPA)
 const APP_HTML = `
 <!DOCTYPE html>
 <html lang="es">
@@ -22,65 +21,34 @@ const APP_HTML = `
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Sistema Electoral</title>
-    
     <script src="https://cdn.jsdelivr.net/npm/@microblink/blinkid-in-browser-sdk@5.8.0/ui/dist/blinkid-in-browser/blinkid-in-browser.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    
     <style>
-        body, html { height: 100%; margin: 0; padding: 0; font-family: sans-serif; background: #f0f2f5; overflow: hidden; }
-
+        * { box-sizing: border-box; }
+        body, html { height: 100%; margin: 0; padding: 0; font-family: sans-serif; background: #000; overflow: hidden; }
         /* CAPAS */
-        #layer-ui { position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow-y: auto; z-index: 10; background: #f4f7f6; }
-        #layer-camera { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 9999; display: none; flex-direction: column; }
-
+        #layer-interface { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #f4f7f6; z-index: 10; overflow-y: auto; }
+        #layer-camera { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 20; display: none; flex-direction: column; }
         /* UI */
         .card { background: white; width: 90%; max-width: 400px; padding: 20px; border-radius: 12px; margin: 20px auto; text-align: center; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
         .btn { width: 100%; padding: 15px; border: none; border-radius: 8px; font-weight: bold; font-size: 16px; margin-top: 10px; color: white; cursor: pointer; }
-        .btn-green { background: #28a745; }
-        .btn-blue { background: #003366; }
-        input { width: 100%; padding: 12px; margin-bottom: 10px; text-align: center; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
-
-        /* HEADER CAMARA */
-        .cam-header { position: absolute; top: 0; left: 0; width: 100%; height: 60px; background: rgba(0,0,0,0.8); z-index: 10000; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; box-sizing: border-box; color: white; }
-
-        /* CONSOLA DE DEBUG */
-        #debug-console {
-            position: absolute; bottom: 0; left: 0; width: 100%; height: 150px;
-            background: rgba(0,0,0,0.8); color: #00ff00; font-family: monospace; font-size: 11px;
-            overflow-y: scroll; z-index: 10001; padding: 10px; box-sizing: border-box;
-            border-top: 2px solid orange; pointer-events: none;
-        }
-
-        blinkid-in-browser { width: 100%; height: 100%; display: block; }
-
-        /* LOADING SPINNER */
-        #loader {
-            position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%);
-            color: white; z-index: 9000; text-align: center; pointer-events: none;
-        }
-
+        .btn-green { background: #28a745; } .btn-blue { background: #003366; } .btn-red { background: #dc3545; }
+        input { width: 100%; padding: 12px; margin-bottom: 10px; text-align: center; border: 1px solid #ddd; border-radius: 5px; }
+        /* MICROBLINK */
+        blinkid-in-browser { width: 100%; height: 100%; display: block; background: #000; }
         /* MODAL */
-        #modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 20000; display: none; align-items: center; justify-content: center; }
+        #modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 30; display: none; align-items: center; justify-content: center; }
         #modal-box { background: white; padding: 25px; border-radius: 10px; width: 85%; max-width: 350px; text-align: center; }
+        /* HEADER CAMARA */
+        .cam-controls { position: absolute; top: 0; left: 0; width: 100%; padding: 15px; display: flex; justify-content: space-between; z-index: 25; background: rgba(0,0,0,0.5); color: white; }
     </style>
 </head>
 <body>
-
     <script>
         const LICENCIA = "sRwCABpzaXN0ZW1hLXJldGVuLm9ucmVuZGVyLmNvbQZsZXlKRGNtVmhkR1ZrVDI0aU9qRTNOekF6TkRBNE56UXhORE1zSWtOeVpXRjBaV1JHYjNJaU9pSmhOVFkyT1RNeFppMWpNbVEyTFRRMk1UY3RZalF3T0MwM09Ea3dNVFJrT0RFMVpqQWlmUT09Xx8uagCPC8T3b3Qa3oHIoGgMBAgsat/gyX1+szaTbpLSxKbea+5LfnKoV2qjcJo5KX2BZfrFUBxFP093X0F3XpjecVfoJx+llc9E4c5k8MBT59V+d+ll6wtjn1EnjA==";
-        
-        function log(msg, type='info') {
-            const consoleDiv = document.getElementById('debug-console');
-            const p = document.createElement('div');
-            p.innerText = "> " + msg;
-            if(type === 'error') p.style.color = 'red';
-            if(type === 'success') p.style.color = 'cyan';
-            consoleDiv.appendChild(p);
-            consoleDiv.scrollTop = consoleDiv.scrollHeight;
-        }
     </script>
 
-    <div id="layer-ui">
+    <div id="layer-interface">
         <div id="view-login" style="height: 100vh; display: flex; align-items: center; justify-content: center; background: #003366;">
             <div class="card">
                 <h2>CONTROL ELECTORAL</h2>
@@ -89,16 +57,14 @@ const APP_HTML = `
                 <button class="btn btn-green" onclick="doLogin()">ENTRAR</button>
             </div>
         </div>
-
         <div id="view-dashboard" style="display:none; padding-top: 60px;">
-            <div style="background:#003366; color:white; padding:15px; position:fixed; top:0; left:0; width:100%; z-index:100; display:flex; justify-content:space-between; box-sizing:border-box;">
-                <b id="u-name">Usuario</b> <span onclick="logout()">SALIR</span>
+            <div style="background:#003366; color:white; padding:15px; position:fixed; top:0; left:0; width:100%; z-index:100; display:flex; justify-content:space-between;">
+                <b id="u-name">Usuario</b> <span onclick="logout()" style="text-decoration:underline;">SALIR</span>
             </div>
             <div class="card" onclick="irRegistro()"><h3>📝 REGISTRO MANUAL</h3></div>
-            <div class="card" onclick="activarCamara()" style="border: 3px solid #28a745;"><h3 style="color:#28a745">📷 ACTIVAR ESCÁNER</h3></div>
+            <div class="card" onclick="activarCamara()" style="border: 3px solid #28a745;"><h3 style="color:#28a745">📷 ACTIVAR ESCÁNER</h3><p>Modo Día D</p></div>
             <div class="card"><h3>Total: <span id="s-total">0</span> | Votos: <span id="s-votos">0</span></h3></div>
         </div>
-
         <div id="view-registro" style="display:none; padding-top:20px;">
             <div class="card">
                 <h3>Nuevo</h3>
@@ -109,20 +75,9 @@ const APP_HTML = `
     </div>
 
     <div id="layer-camera">
-        <div class="cam-header">
-            <b>Diagnóstico V9</b>
-            <button onclick="cerrarCamara()" style="background:white; color:black; border:none; padding:5px 15px; border-radius:15px;">X</button>
-        </div>
-        
-        <div id="loader">
-            <i class="fas fa-circle-notch fa-spin fa-3x"></i><br><br>
-            CARGANDO MOTORES...<br>
-            (Puede tardar si el internet es lento)
-        </div>
-
+        <div class="cam-controls"><span>Escaneando...</span><button onclick="cerrarCamara()" style="background:white; color:black; border:none; padding:5px 15px; border-radius:15px; font-weight:bold;">CERRAR</button></div>
+        <div id="loader" style="color:white; text-align:center; margin-top:50%;"><i class="fas fa-spinner fa-spin fa-3x"></i><br><br>CARGANDO...</div>
         <blinkid-in-browser id="scanner-el"></blinkid-in-browser>
-
-        <div id="debug-console">Inicializando...<br></div>
     </div>
 
     <div id="modal-overlay"><div id="modal-box"></div></div>
@@ -143,75 +98,36 @@ const APP_HTML = `
         }
 
         async function activarCamara() {
-            document.getElementById('layer-ui').style.display = 'none';
+            document.getElementById('layer-interface').style.display = 'none';
             document.getElementById('layer-camera').style.display = 'flex';
             document.getElementById('loader').style.display = 'block';
-            
-            log("1. Pidiendo permiso nativo...", 'info');
-            
             try {
-                // 1. Permiso Nativo
                 const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-                log("2. Permiso OK. Iniciando carga SDK.", 'success');
                 stream.getTracks().forEach(t => t.stop());
                 
-                iniciarSDK();
-                
-            } catch(e) {
-                log("ERROR FATAL: Cámara denegada.", 'error');
-                alert("No diste permiso de cámara.");
-            }
-        }
-
-        function iniciarSDK() {
-            log("3. Configurando SDK 5.8.0 (JSDelivr)...", 'info');
-            const el = document.getElementById('scanner-el');
-            
-            try {
+                const el = document.getElementById('scanner-el');
                 el.licenseKey = LICENCIA;
                 el.recognizers = ['BlinkIdRecognizer'];
-                
-                // CAMBIO CLAVE: Usamos JSDelivr para la versión 5.8.0
                 el.engineLocation = "https://cdn.jsdelivr.net/npm/@microblink/blinkid-in-browser-sdk@5.8.0/resources/";
                 
-                log("4. Engine URL: " + el.engineLocation);
-                
                 el.addEventListener('scanSuccess', (ev) => {
-                    log("SCAN EXITO!", 'success');
                     const r = ev.detail.recognizers.BlinkIdRecognizer;
                     if (r.resultState === 'Valid') {
                          let doc = r.documentNumber || r.mrz.documentNumber;
-                         if(doc) {
-                             cerrarCamara();
-                             verificarCedula(doc.replace(/[^0-9]/g, ''));
-                         }
+                         if(doc) { cerrarCamara(); verificarCedula(doc.replace(/[^0-9]/g, '')); }
                     }
                 });
-
-                // Este evento dispara cuando el motor YA cargó y está listo
-                el.addEventListener('ready', () => {
-                    log("5. MOTOR LISTO Y CARGADO!", 'success');
-                    document.getElementById('loader').style.display = 'none';
-                });
-
-                el.addEventListener('fatalError', (ev) => {
-                    log("ERROR SDK: " + ev.detail.message, 'error');
-                });
-
-                el.addEventListener('scanError', (ev) => {
-                    log("ERROR ESCANEO: " + ev.detail.code, 'error');
-                });
-                
-                log("5. Esperando descarga de recursos WASM...", 'info');
-
+                el.addEventListener('fatalError', (ev) => { alert("Error Camara: "+ev.detail.message); cerrarCamara(); });
+                // Timeout seguridad
+                setTimeout(() => { document.getElementById('loader').style.display = 'none'; }, 5000);
             } catch(e) {
-                log("EXCEPCION JS: " + e.message, 'error');
+                alert("Sin permiso de cámara"); cerrarCamara();
             }
         }
 
         function cerrarCamara() {
             document.getElementById('layer-camera').style.display = 'none';
-            document.getElementById('layer-ui').style.display = 'block';
+            document.getElementById('layer-interface').style.display = 'block';
             location.reload(); 
         }
 
@@ -253,10 +169,8 @@ const APP_HTML = `
             const ov = document.getElementById('modal-overlay');
             const box = document.getElementById('modal-box');
             ov.style.display = 'flex'; box.innerHTML = '<h3>Verificando '+cedula+'...</h3>';
-            
             const res = await fetch(API+'/api/verificar/'+cedula);
             const d = await res.json();
-            
             if(d.estado === 'NUEVO') box.innerHTML = '<h1 style="color:red">X</h1><h3>NO ESTÁ</h3><button class="btn btn-blue" onclick="location.reload()">OK</button>';
             else if(d.estado === 'YA_VOTO') box.innerHTML = '<h1 style="color:orange">⚠️</h1><h3>YA VOTÓ</h3><p>'+d.datos.nombre_coordinador+'</p><button class="btn btn-blue" onclick="location.reload()">OK</button>';
             else {
@@ -264,8 +178,53 @@ const APP_HTML = `
                 box.innerHTML = '<h1 style="color:green">✅</h1><h3>REGISTRADO</h3><p>'+d.datos.nombre_completo+'</p><button class="btn btn-blue" onclick="location.reload()">OK</button>';
             }
         }
-
         window.onload = checkSession;
     </script>
 </body>
 </html>
+`;
+
+// API ROUTES
+app.get('/', (req, res) => res.send(APP_HTML));
+app.post('/api/login', async (req, res) => {
+  const { usuario, password } = req.body;
+  try {
+      const r = await pool.query('SELECT * FROM usuarios WHERE numero_documento = $1 AND password = $2', [usuario, password]);
+      if(r.rows.length > 0) res.json({exito:true, usuario:r.rows[0]});
+      else res.json({exito:false});
+  } catch(e) { res.status(500).json({error:e.message}); }
+});
+app.get('/api/dashboard/stats', async (req, res) => {
+  try {
+      const t = await pool.query('SELECT COUNT(*) FROM referidos');
+      const v = await pool.query('SELECT COUNT(*) FROM referidos WHERE estado_voto = true');
+      res.json({ total: t.rows[0].count, votos: v.rows[0].count });
+  } catch(e) { res.json({total:0, votos:0}); }
+});
+app.post('/api/crear_referido', async (req, res) => {
+  const { nombre, num_doc, responsable_id } = req.body;
+  try {
+    const chk = await pool.query('SELECT * FROM referidos WHERE numero_documento = $1', [num_doc]);
+    if(chk.rows.length>0) return res.json({exito:false, mensaje:'DUPLICADO'});
+    await pool.query('INSERT INTO referidos (nombre_completo, numero_documento, responsable_id) VALUES ($1, $2, $3)', [nombre, num_doc, responsable_id]);
+    res.json({exito:true});
+  } catch(e) { res.json({exito:false, mensaje:e.message}); }
+});
+app.get('/api/verificar/:cedula', async (req, res) => {
+  try {
+      const { cedula } = req.params;
+      const r = await pool.query(`SELECT r.*, u.nombres as nombre_coordinador FROM referidos r JOIN usuarios u ON r.responsable_id = u.id WHERE r.numero_documento = $1`, [cedula]);
+      if (r.rows.length === 0) return res.json({ estado: 'NUEVO' });
+      if (r.rows[0].estado_voto) return res.json({ estado: 'YA_VOTO', datos: r.rows[0] });
+      return res.json({ estado: 'REGISTRADO', datos: r.rows[0] });
+  } catch(e) { res.json({estado:'ERROR'}); }
+});
+app.put('/api/referidos/votar/:cedula', async (req, res) => {
+  try {
+      await pool.query('UPDATE referidos SET estado_voto = true WHERE numero_documento = $1', [req.params.cedula]);
+      res.json({ exito: true });
+  } catch(e) { res.json({exito:false}); }
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`SERVER ON ${PORT}`));
