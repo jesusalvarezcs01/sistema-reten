@@ -13,7 +13,7 @@ const pool = new Pool({
 });
 
 // =================================================================
-// 1. INTERFAZ GRÁFICA FINAL (SOLUCIÓN PANTALLA NEGRA)
+// 1. INTERFAZ GRÁFICA MÓVIL (MODULARIZADA)
 // =================================================================
 const APP_HTML = `
 <!DOCTYPE html>
@@ -30,105 +30,82 @@ const APP_HTML = `
         :root { --primary: #003366; --bg: #f4f7f6; --white: #ffffff; --green: #28a745; --red: #dc3545; }
         
         body, html { 
-            height: 100%;
+            height: 100%; 
             margin: 0; 
             padding: 0; 
             font-family: 'Segoe UI', sans-serif; 
-            background-color: var(--bg); 
-            overflow: hidden; /* IMPORTANTE: Bloquea scroll global */
+            background-color: var(--bg);
+            overflow: hidden; /* Evita que la página "baile" */
         }
 
-        /* --- CONTENEDOR DE LA APLICACIÓN (LOGIN/DASHBOARD) --- */
-        #app-container {
+        /* --- MUNDO 1: INTERFAZ ADMINISTRATIVA (CON SCROLL) --- */
+        #interface-admin {
             height: 100%;
-            overflow-y: auto; /* Scroll solo dentro de la app */
+            overflow-y: auto;
             display: block;
-            transition: opacity 0.3s;
+            position: relative;
+            z-index: 10;
         }
-        
+
+        /* --- MUNDO 2: INTERFAZ ESCÁNER (FIJA, SIN SCROLL) --- */
+        #interface-scanner {
+            display: none; /* Oculto por defecto */
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: #000;
+            z-index: 9999;
+        }
+
         /* HEADER */
         .navbar { 
-            background: var(--primary); 
-            color: white; 
-            padding: 15px; 
-            display: flex; 
-            justify-content: space-between; 
-            align-items: center; 
-            position: sticky; top: 0;
-            z-index: 100; 
+            background: var(--primary); color: white; padding: 15px; 
+            display: flex; justify-content: space-between; align-items: center; 
             box-shadow: 0 2px 10px rgba(0,0,0,0.2); 
+            position: sticky; top: 0; z-index: 100;
         }
 
-        /* PANTALLAS */
-        .screen { display: none !important; padding: 20px; padding-bottom: 80px; }
-        .screen.active { display: block !important; animation: fade 0.3s; }
+        /* PANTALLAS ADMINISTRATIVAS */
+        .screen { display: none; padding: 20px; padding-bottom: 50px; }
+        .screen.active { display: block; animation: fade 0.3s; }
         
         .card { 
-            background: white; 
-            border-radius: 12px; 
-            padding: 20px; 
-            margin: 0 auto 15px auto; 
+            background: white; border-radius: 12px; padding: 20px; margin-bottom: 15px; 
             box-shadow: 0 2px 8px rgba(0,0,0,0.05); 
-            width: 90%; 
-            max-width: 500px;
-        }
-
-        /* --- CONTENEDOR DEL ESCÁNER (AISLADO) --- */
-        #scanner-overlay {
-            position: fixed;
-            top: 0; left: 0; width: 100vw; height: 100vh;
-            background-color: #000;
-            z-index: 99999;
-            display: none; /* Oculto por defecto */
-            flex-direction: column;
-        }
-
-        #scanner-overlay.active {
-            display: flex !important;
-        }
-
-        /* COMPONENTE MICROBLINK */
-        blinkid-in-browser {
-            flex: 1;
-            width: 100%;
-            height: 100%;
-            display: block;
-        }
-
-        .scan-header {
-            position: absolute;
-            top: 0; left: 0; width: 100%;
-            padding: 15px;
-            background: rgba(0,0,0,0.5);
-            color: white;
-            z-index: 100000;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            box-sizing: border-box;
-        }
-
-        .scan-msg {
-            position: absolute;
-            bottom: 50px; left: 0; width: 100%;
-            text-align: center;
-            color: white;
-            z-index: 100000;
-            font-size: 1.2rem;
-            text-shadow: 0 1px 3px black;
-            pointer-events: none;
         }
 
         /* BOTONES */
         .btn { width: 100%; padding: 15px; border: none; border-radius: 8px; font-size: 1rem; font-weight: bold; cursor: pointer; margin-top: 10px; color: white; }
         .btn-primary { background: var(--primary); }
         .btn-green { background: var(--green); }
-        .btn-cancel { background: rgba(255,255,255,0.2); border: 1px solid white; color: white; padding: 5px 15px; border-radius: 20px; }
+        .btn-outline { border: 2px solid var(--primary); color: var(--primary); background: transparent; }
         
         input, select { width: 100%; padding: 12px; margin-bottom: 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 1rem; box-sizing: border-box; }
 
+        /* MODULO CARDS */
+        .module-card {
+            background: white; padding: 30px; border-radius: 15px; text-align: center;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin-bottom: 20px; cursor: pointer;
+            transition: transform 0.2s; border: 2px solid transparent;
+        }
+        .module-card:active { transform: scale(0.98); background: #f9f9f9; }
+        .module-icon { font-size: 3rem; margin-bottom: 10px; color: var(--primary); }
+        .module-title { font-size: 1.2rem; font-weight: bold; color: #333; }
+
+        /* MICROBLINK FIX */
+        blinkid-in-browser {
+            width: 100%; height: 100%; display: block;
+            position: absolute; top: 0; left: 0;
+        }
+        
+        .scan-overlay-ui {
+            position: absolute; top: 0; left: 0; width: 100%; 
+            z-index: 10000; padding: 20px; box-sizing: border-box;
+            background: linear-gradient(180deg, rgba(0,0,0,0.7) 0%, transparent 100%);
+            display: flex; justify-content: space-between;
+        }
+
         /* MODAL */
-        .result-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); display: none; align-items: center; justify-content: center; z-index: 200000; }
+        .result-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); display: none; align-items: center; justify-content: center; z-index: 20000; }
         .modal-box { background: white; width: 85%; max-width: 400px; padding: 25px; border-radius: 15px; text-align: center; }
 
         @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
@@ -137,23 +114,22 @@ const APP_HTML = `
 <body>
 
     <script>
-        // TU LLAVE EXACTA
         const LICENCIA_MICROBLINK = "sRwCABpzaXN0ZW1hLXJldGVuLm9ucmVuZGVyLmNvbQZsZXlKRGNtVmhkR1ZrVDI0aU9qRTNOekF6TkRBNE56UXhORE1zSWtOeVpXRjBaV1JHYjNJaU9pSmhOVFkyT1RNeFppMWpNbVEyTFRRMk1UY3RZalF3T0MwM09Ea3dNVFJrT0RFMVpqQWlmUT09Xx8uagCPC8T3b3Qa3oHIoGgMBAgsat/gyX1+szaTbpLSxKbea+5LfnKoV2qjcJo5KX2BZfrFUBxFP093X0F3XpjecVfoJx+llc9E4c5k8MBT59V+d+ll6wtjn1EnjA=="; 
     </script>
 
-    <div id="app-container">
+    <div id="interface-admin">
         
         <div class="navbar" id="nav" style="display:none;">
             <div id="user-display" style="font-weight:bold;">Usuario</div>
-            <div onclick="logout()" style="cursor:pointer; padding:10px;"><i class="fas fa-sign-out-alt"></i> SALIR</div>
+            <div onclick="logout()" style="cursor:pointer; padding:5px;"><i class="fas fa-sign-out-alt"></i> SALIR</div>
         </div>
 
-        <div id="screen-login" class="screen active" style="display:flex !important; flex-direction:column; justify-content:center; min-height:80vh;">
-            <div class="card" style="text-align: center;">
+        <div id="screen-login" class="screen active" style="height: 90vh; display: flex !important; align-items: center; justify-content: center;">
+            <div class="card" style="text-align: center; width: 100%;">
                 <h2 style="color: var(--primary);">CONTROL ELECTORAL</h2>
                 <p>El Retén 2026</p>
                 <br>
-                <input type="number" id="login-user" placeholder="Cédula" style="text-align:center;">
+                <input type="number" id="login-user" placeholder="Cédula Usuario" style="text-align:center;">
                 <input type="password" id="login-pass" placeholder="Contraseña" style="text-align:center;">
                 <button class="btn btn-primary" onclick="login()">INGRESAR</button>
                 <p id="error-msg" style="color:red; display:none; margin-top:10px;">Credenciales incorrectas</p>
@@ -161,27 +137,35 @@ const APP_HTML = `
         </div>
 
         <div id="screen-dashboard" class="screen">
-            <div class="card">
-                <h3>👋 Hola, <span id="dash-name">...</span></h3>
-                <button class="btn btn-primary" onclick="irA('screen-registro')">📝 REGISTRO MANUAL</button>
-                <hr style="margin:20px 0; border-top:1px solid #eee;">
-                <button class="btn btn-green" onclick="iniciarMicroblink()">📷 ESCÁNER DÍA D</button>
+            <h3 style="margin-top:0;">👋 Bienvenido, <span id="dash-name">...</span></h3>
+            <p>Seleccione el módulo de trabajo:</p>
+
+            <div class="module-card" onclick="irA('screen-registro')">
+                <i class="fas fa-edit module-icon"></i>
+                <div class="module-title">REGISTRO MANUAL</div>
+                <small>Planillas y Formularios</small>
             </div>
-            <div class="card">
+
+            <div class="module-card" onclick="activarModoEscaner()" style="border: 2px solid var(--green);">
+                <i class="fas fa-qrcode module-icon" style="color: var(--green);"></i>
+                <div class="module-title" style="color: var(--green);">OPERACIÓN DÍA D</div>
+                <small>Escáner de Cédulas</small>
+            </div>
+
+            <div class="card" style="margin-top:30px;">
+                <h4>📊 Estadísticas Rápidas</h4>
                 <div style="display:flex; justify-content:space-around;">
-                    <div style="text-align:center;"><h2><span id="stat-total">0</span></h2><small>Total</small></div>
-                    <div style="text-align:center; color:green;"><h2><span id="stat-votos">0</span></h2><small>Votaron</small></div>
+                    <div style="text-align:center;"><h2 id="stat-total">0</h2><small>Total</small></div>
+                    <div style="text-align:center; color:green;"><h2 id="stat-votos">0</h2><small>Votaron</small></div>
                 </div>
             </div>
         </div>
 
         <div id="screen-registro" class="screen">
+            <button class="btn btn-outline" style="width:auto; margin-bottom:15px;" onclick="irA('screen-dashboard')">⬅ Volver al Menú</button>
             <div class="card">
-                <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
-                    <h3>Nuevo Votante</h3>
-                    <button onclick="irA('screen-dashboard')" style="width:auto; background:#ccc; color:#000; padding:5px 10px; border:none; border-radius:5px;">X</button>
-                </div>
-                <input type="text" id="reg-nombre" placeholder="Nombre">
+                <h3>Nuevo Registro</h3>
+                <input type="text" id="reg-nombre" placeholder="Nombre Completo">
                 <input type="number" id="reg-cedula" placeholder="Cédula">
                 <input type="tel" id="reg-cel" placeholder="Celular">
                 <input type="text" id="reg-mesa" placeholder="Mesa">
@@ -190,96 +174,115 @@ const APP_HTML = `
                 <button class="btn btn-primary" onclick="guardarRegistro()">GUARDAR</button>
             </div>
         </div>
-    </div>
 
-    <div id="scanner-overlay">
-        <div class="scan-header">
-            <span>📷 Escaneando...</span>
-            <button class="btn-cancel" onclick="detenerMicroblink()">CANCELAR</button>
+    </div> <div id="interface-scanner">
+        <div class="scan-overlay-ui">
+            <button onclick="desactivarModoEscaner()" style="background:white; border:none; padding:10px 20px; border-radius:20px; font-weight:bold; color:black;">⬅ SALIR</button>
+            <span style="color:white; font-weight:bold; margin-top:5px;">📷 ESCANEAR</span>
         </div>
-        
-        <div id="scan-loading" style="color:white; text-align:center; margin-top:50%; display:none;">
-            <i class="fas fa-spinner fa-spin fa-2x"></i><br>Iniciando cámara...
+
+        <div id="camera-loading" style="color:white; text-align:center; position:absolute; top:40%; width:100%;">
+            <i class="fas fa-spinner fa-spin fa-3x"></i><br><br>Iniciando Cámara...<br>Por favor espera...
         </div>
 
         <blinkid-in-browser
             id="my-blinkid-component"
             engine-location="https://unpkg.com/@microblink/blinkid-in-browser-sdk@5.8.0/resources/"
         ></blinkid-in-browser>
-
-        <div class="scan-msg">Acerca la Cédula</div>
     </div>
+
 
     <div id="modal-result" class="result-modal" onclick="cerrarModal()">
         <div class="modal-box" id="modal-box-content"></div>
     </div>
 
+
     <script>
         const API = window.location.origin;
         let currentUser = null;
 
-        // --- MICROBLINK LOGIC ---
-        function iniciarMicroblink() {
-            // 1. OCULTAR TODA LA APP (Login, Menu, Todo)
-            document.getElementById('app-container').style.display = 'none';
+        // --- LÓGICA DE TRANSICIÓN DE MUNDOS ---
+        function activarModoEscaner() {
+            // 1. Ocultamos el mundo administrativo completamente
+            document.getElementById('interface-admin').style.display = 'none';
+            // 2. Mostramos el mundo escáner
+            document.getElementById('interface-scanner').style.display = 'block';
             
-            // 2. MOSTRAR SOLO EL ESCÁNER
-            const overlay = document.getElementById('scanner-overlay');
-            overlay.classList.add('active');
-            document.getElementById('scan-loading').style.display = 'block';
+            // 3. Iniciamos Microblink
+            iniciarMicroblinkEngine();
+        }
 
+        function desactivarModoEscaner() {
+            document.getElementById('interface-scanner').style.display = 'none';
+            document.getElementById('interface-admin').style.display = 'block';
+            
+            // Limpiar modal si quedó abierto
+            document.getElementById('modal-result').style.display = 'none';
+        }
+
+        function iniciarMicroblinkEngine() {
             const blinkId = document.querySelector('blinkid-in-browser');
             
-            // Asegurarse de que el componente está limpio
+            // Configurar licencia
             blinkId.licenseKey = LICENCIA_MICROBLINK;
-            blinkId.recognizers = ['BlinkIdRecognizer']; 
+            
+            // Configurar reconocedores
+            const recognizer = new BlinkIDSDK.BlinkIdRecognizer();
+            blinkId.recognizers = [recognizer]; 
 
-            // EVENTOS
+            // Configurar UI settings para asegurar full screen
+            blinkId.uiSettings = {
+                enableFullScreen: true
+            };
+
+            // Listener Éxito
             blinkId.addEventListener('scanSuccess', (ev) => {
                 const results = ev.detail.recognizers.BlinkIdRecognizer;
+                
                 if (results.resultState === 'Valid') {
+                    // Extraer documento con prioridad
                     const docNumber = results.documentNumber || results.mrz.documentNumber || results.mrz.primaryId;
+                    
                     if(docNumber) {
                         let cedulaLimpia = docNumber.replace(/</g, '').replace(/[a-zA-Z]/g, '');
-                        // DETENER MICROBLINK Y PROCESAR
-                        detenerMicroblink(); 
+                        console.log("Detectado:", cedulaLimpia);
                         procesarVoto(cedulaLimpia);
                     }
                 }
             });
 
+            // Listener Error Fatal
             blinkId.addEventListener('fatalError', (ev) => {
-                alert("Error Fatal: La cámara no pudo iniciar. Revisa permisos.");
-                detenerMicroblink();
+                alert("Error de Cámara: " + ev.detail.message);
+                desactivarModoEscaner();
             });
 
+            // Listener Error Licencia
             blinkId.addEventListener('scanError', (ev) => {
                  if(ev.detail.code === "LicenseError") {
-                    alert("Licencia rechazada. Verifica el dominio.");
-                    detenerMicroblink();
+                    alert("Error Licencia: Verifica el dominio en Microblink.");
+                    desactivarModoEscaner();
                  }
             });
             
-            // Ocultar loading cuando arranque
-            setTimeout(() => { document.getElementById('scan-loading').style.display = 'none'; }, 3000);
+            // Ocultar texto de carga cuando el componente esté listo (esto es un estimado)
+            setTimeout(() => { document.getElementById('camera-loading').style.display = 'none'; }, 2000);
         }
 
-        function detenerMicroblink() {
-            // 1. OCULTAR ESCÁNER
-            document.getElementById('scanner-overlay').classList.remove('active');
-            // 2. MOSTRAR APP DE NUEVO
-            document.getElementById('app-container').style.display = 'block';
-        }
-
-        // --- APP LOGIC ---
+        // --- LÓGICA APP ADMINISTRATIVA ---
+        
         function irA(screenId) {
+            // Ocultar todas las pantallas del admin
             document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            // Mostrar la deseada
             document.getElementById(screenId).classList.add('active');
+
+            // Manejo de Navbar
             if(screenId === 'screen-login') document.getElementById('nav').style.display = 'none';
             else document.getElementById('nav').style.display = 'flex';
         }
 
-        function logout() { localStorage.removeItem('reten_user'); location.reload(); }
+        function logout() { location.reload(); }
 
         async function login() {
             const u = document.getElementById('login-user').value;
@@ -297,7 +300,7 @@ const APP_HTML = `
                     cargarStats();
                     cargarEquipo();
                 } else { document.getElementById('error-msg').style.display = 'block'; }
-            } catch(e) { alert("Error conexión"); }
+            } catch(e) { alert("Error de conexión"); }
         }
 
         async function cargarStats() {
@@ -374,7 +377,7 @@ const APP_HTML = `
 `;
 
 // =================================================================
-// 2. BACKEND
+// 2. BACKEND API
 // =================================================================
 app.get('/', (req, res) => { res.send(APP_HTML); });
 
@@ -441,6 +444,7 @@ app.put('/api/referidos/votar/:cedula', async (req, res) => {
   res.json({ exito: true });
 });
 
+// GESTIÓN
 app.get('/api/usuarios', async (req, res) => { const r = await pool.query('SELECT * FROM usuarios ORDER BY id DESC'); res.json(r.rows); });
 app.post('/api/usuarios', async (req, res) => { const { nombres, apellidos, num_doc, password, rol } = req.body; await pool.query('INSERT INTO usuarios (nombres, apellidos, numero_documento, password, rol) VALUES ($1, $2, $3, $4, $5)', [nombres, apellidos, num_doc, password, rol]); res.json({ exito: true }); });
 app.delete('/api/usuarios/:id', async (req, res) => { await pool.query('DELETE FROM usuarios WHERE id = $1', [req.params.id]); res.json({ exito: true }); });
