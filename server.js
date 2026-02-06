@@ -2,7 +2,7 @@ const express = require('express');
 const { Pool } = require('pg');
 const cors = require('cors');
 const bodyParser = require('body-parser');
-const axios = require('axios'); // NECESARIO PARA EL TRUCO (Ya viene en Render usualmente)
+const https = require('https'); // USAMOS LIBRERÍA NATIVA (NO REQUIERE INSTALACIÓN)
 
 const app = express();
 app.use(cors());
@@ -14,28 +14,32 @@ const pool = new Pool({
 });
 
 // =================================================================
-// 1. TRUCO DE PROXY (BACKEND DESCARGA LOS ARCHIVOS)
+// 1. PROXY NATIVO (SIN AXIOS)
 // =================================================================
-// Esto engaña al celular para que crea que los archivos son locales
-app.get('/resources/:file', async (req, res) => {
+// Este bloque descarga los archivos de Microblink y te los sirve localmente
+// para que el celular no los bloquee por seguridad.
+app.get('/resources/:file', (req, clientRes) => {
     const fileName = req.params.file;
-    const remoteUrl = `https://cdn.jsdelivr.net/npm/@microblink/blinkid-in-browser-sdk@6.1.0/resources/${fileName}`;
-    
-    try {
-        // El servidor descarga el archivo por ti
-        const response = await axios.get(remoteUrl, { responseType: 'arraybuffer' });
+    // Usamos la versión 5.8.0 que es la más estable para el proxy
+    const remoteUrl = `https://cdn.jsdelivr.net/npm/@microblink/blinkid-in-browser-sdk@5.8.0/resources/${fileName}`;
+
+    https.get(remoteUrl, (remoteRes) => {
+        // Copiamos los encabezados importantes
+        if (remoteRes.headers['content-type']) {
+            clientRes.set('Content-Type', remoteRes.headers['content-type']);
+        }
+        // Engañamos al navegador: "Es seguro, viene del mismo sitio"
+        clientRes.set('Access-Control-Allow-Origin', '*');
         
-        // Se lo entregamos al celular con los permisos correctos
-        res.set('Content-Type', response.headers['content-type']);
-        res.set('Access-Control-Allow-Origin', '*');
-        res.send(response.data);
-    } catch (error) {
-        res.status(404).send("Error proxy: " + error.message);
-    }
+        // Enviamos el archivo
+        remoteRes.pipe(clientRes);
+    }).on('error', (e) => {
+        clientRes.status(500).send("Error Proxy: " + e.message);
+    });
 });
 
 // =================================================================
-// 2. INTERFAZ GRÁFICA (V14)
+// 2. INTERFAZ GRÁFICA (V15)
 // =================================================================
 const APP_HTML = `
 <!DOCTYPE html>
@@ -45,7 +49,7 @@ const APP_HTML = `
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Sistema Electoral</title>
     
-    <script src="https://cdn.jsdelivr.net/npm/@microblink/blinkid-in-browser-sdk@6.1.0/ui/dist/blinkid-in-browser/blinkid-in-browser.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@microblink/blinkid-in-browser-sdk@5.8.0/ui/dist/blinkid-in-browser/blinkid-in-browser.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     
     <style>
@@ -60,6 +64,7 @@ const APP_HTML = `
         .btn { width: 100%; padding: 15px; border: none; border-radius: 8px; font-weight: bold; font-size: 16px; margin-top: 10px; color: white; cursor: pointer; }
         .btn-green { background: #28a745; }
         .btn-blue { background: #003366; }
+        .btn-red { background: #dc3545; }
         input { width: 100%; padding: 12px; margin-bottom: 10px; text-align: center; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
 
         /* HEADER CAMARA */
@@ -114,13 +119,13 @@ const APP_HTML = `
 
     <div id="layer-camera">
         <div class="cam-header">
-            <b>Escáner V14 (Proxy)</b>
+            <b>Escáner V15 (Nativo)</b>
             <button onclick="cerrarCamara()" style="background:white; color:black; border:none; padding:5px 15px; border-radius:15px;">X</button>
         </div>
         
         <div id="loader">
             <i class="fas fa-circle-notch fa-spin fa-3x"></i><br><br>
-            CARGANDO RECURSOS...
+            CARGANDO MOTOR IA...
         </div>
 
         <blinkid-in-browser id="scanner-el"></blinkid-in-browser>
@@ -153,16 +158,15 @@ const APP_HTML = `
                 const stream = await navigator.mediaDevices.getUserMedia({ video: true });
                 stream.getTracks().forEach(t => t.stop());
                 
-                // 2. Configurar SDK apuntando a NUESTRO PROPIO SERVIDOR
+                // 2. Configurar SDK apuntando AL PROXY LOCAL (/resources/)
                 const el = document.getElementById('scanner-el');
                 el.licenseKey = LICENCIA;
                 el.recognizers = ['BlinkIdRecognizer'];
                 
-                // MAGIA AQUI: Le decimos que los archivos están AQUI MISMO
-                // El backend (/resources/) se encargará de buscarlos afuera
+                // --- TRUCO: USAMOS EL PROXY DE NUESTRO SERVIDOR ---
                 el.engineLocation = window.location.origin + "/resources/";
                 
-                console.log("Cargando engine desde: " + el.engineLocation);
+                console.log("Cargando engine desde proxy: " + el.engineLocation);
 
                 el.addEventListener('scanSuccess', (ev) => {
                     const r = ev.detail.recognizers.BlinkIdRecognizer;
@@ -184,13 +188,17 @@ const APP_HTML = `
                     alert("Error SDK: " + ev.detail.message);
                     cerrarCamara();
                 });
-
-                el.addEventListener('scanError', (ev) => {
-                    if(ev.detail.code === "LicenseError") alert("Error Licencia.");
-                });
+                
+                // Si tarda mas de 15 segundos...
+                setTimeout(() => {
+                    if(document.getElementById('loader').style.display !== 'none') {
+                        // Si sigue cargando, intentamos forzar recarga
+                         console.log("Carga lenta...");
+                    }
+                }, 15000);
 
             } catch(e) {
-                alert("No diste permiso de cámara.");
+                alert("Permiso de cámara denegado.");
                 cerrarCamara();
             }
         }
