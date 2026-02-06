@@ -12,14 +12,14 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-// --- RUTA DE ARQUITECTURA (ROLES Y PERMISOS) ---
-app.get('/setup_completo', async (req, res) => {
+// --- RUTA DE ARQUITECTURA (ROLES Y PERMISOS DEFINITIVOS) ---
+app.get('/setup_final', async (req, res) => {
   try {
-    // 1. Reiniciar tablas (Para aplicar la nueva estructura limpia)
+    // 1. Limpieza total (Borramos para reconstruir bien)
     await pool.query('DROP TABLE IF EXISTS referidos;');
     await pool.query('DROP TABLE IF EXISTS usuarios;');
     
-    // 2. Tabla de USUARIOS (Aquí están los Roles: Admin, Concejal, Coordinador)
+    // 2. Tabla de USUARIOS (Aquí defines quién es Admin, Concejal o Coordinador)
     await pool.query(`
       CREATE TABLE usuarios (
         id SERIAL PRIMARY KEY,
@@ -31,7 +31,8 @@ app.get('/setup_completo', async (req, res) => {
       );
     `);
 
-    // 3. Tabla de REFERIDOS (Votantes) vinculada a un Coordinador
+    // 3. Tabla de REFERIDOS (Votantes)
+    // Se vincula al 'coordinador_id' para saber quién trajo el voto
     await pool.query(`
       CREATE TABLE referidos (
         id SERIAL PRIMARY KEY,
@@ -40,28 +41,32 @@ app.get('/setup_completo', async (req, res) => {
         mesa_votacion VARCHAR(10),
         telefono VARCHAR(20),
         voto BOOLEAN DEFAULT FALSE,
-        coordinador_id INTEGER REFERENCES usuarios(id) -- Vinculo con quien lo trajo
+        coordinador_id INTEGER REFERENCES usuarios(id)
       );
     `);
 
-    // 4. Crear los Usuarios Base (Segun tus roles)
-    // ADMIN: Soporte Técnico
-    await pool.query(`INSERT INTO usuarios (usuario, password, nombre_completo, rol) VALUES ('admin', 'admin2026', 'Soporte Técnico', 'ADMIN');`);
-    
-    // CONCEJAL: El Candidato (Tú)
-    await pool.query(`INSERT INTO usuarios (usuario, password, nombre_completo, rol) VALUES ('concejal', 'victoria2026', 'H.C. Jesús Alvarez', 'CONCEJAL');`);
-    
-    // COORDINADOR DE EJEMPLO
-    await pool.query(`INSERT INTO usuarios (usuario, password, nombre_completo, rol) VALUES ('lider1', 'lider123', 'Coordinador Zona Norte', 'COORDINADOR');`);
+    // --- CREACIÓN DE USUARIOS BASE ---
 
-    res.send("✅ ARQUITECTURA ACTUALIZADA: Roles de Admin, Concejal y Coordinador creados.");
+    // 1. EL ADMINISTRADOR (TÚ) - Control Total
+    await pool.query(`INSERT INTO usuarios (usuario, password, nombre_completo, rol) 
+      VALUES ('admin', 'admin2026', 'Administrador del Sistema', 'ADMIN');`);
+    
+    // 2. EL CONCEJAL (Solo Vista)
+    await pool.query(`INSERT INTO usuarios (usuario, password, nombre_completo, rol) 
+      VALUES ('concejal', 'victoria2026', 'H.C. Candidato', 'CONCEJAL');`);
+    
+    // 3. UN COORDINADOR DE EJEMPLO (Trabajo de Campo)
+    await pool.query(`INSERT INTO usuarios (usuario, password, nombre_completo, rol) 
+      VALUES ('lider1', 'lider123', 'Coordinador Zona 1', 'COORDINADOR');`);
+
+    res.send("✅ ESTRUCTURA CORRECTA: Administrador, Concejal y Coordinadores creados.");
   } catch (err) {
     console.error(err);
     res.send("❌ ERROR: " + err.message);
   }
 });
 
-// --- API: LOGIN (Para entrar al sistema) ---
+// --- LOGIN (IDENTIFICADOR DE ROLES) ---
 app.post('/api/login', async (req, res) => {
   const { usuario, password } = req.body;
   const result = await pool.query('SELECT * FROM usuarios WHERE usuario = $1 AND password = $2', [usuario, password]);
@@ -73,28 +78,28 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// --- API: CONCEJAL (Ve el total general) ---
-app.get('/api/dashboard/general', async (req, res) => {
-  // Aquí agregaremos la lógica para que tú veas el total de votos vs meta
+// --- API: CONTEO GENERAL (Para Admin y Concejal) ---
+app.get('/api/admin/estadisticas', async (req, res) => {
   const total = await pool.query('SELECT COUNT(*) FROM referidos');
   const votos = await pool.query('SELECT COUNT(*) FROM referidos WHERE voto = true');
+  // Aquí podemos agregar más desglose por mesas después
   res.json({ total: total.rows[0].count, votos: votos.rows[0].count });
 });
 
-// --- API: COORDINADOR (Solo ve a SU gente) ---
+// --- API: VER REFERIDOS DE UN COORDINADOR ESPECÍFICO ---
 app.get('/api/mis_referidos/:id_coordinador', async (req, res) => {
   const { id_coordinador } = req.params;
   const result = await pool.query('SELECT * FROM referidos WHERE coordinador_id = $1', [id_coordinador]);
   res.json(result.rows);
 });
 
-// --- API: VERIFICAR CÉDULA (Pública para escaner) ---
+// --- API: ESCANEO GENERAL (Para ingreso en puerta) ---
 app.get('/api/verificar/:cedula', async (req, res) => {
   const { cedula } = req.params;
   const result = await pool.query(`
     SELECT r.*, u.nombre_completo as nombre_coordinador 
     FROM referidos r 
-    JOIN usuarios u ON r.coordinador_id = u.id 
+    LEFT JOIN usuarios u ON r.coordinador_id = u.id 
     WHERE r.cedula = $1
   `, [cedula]);
 
