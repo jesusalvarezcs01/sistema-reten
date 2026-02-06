@@ -2,6 +2,7 @@ const express = require('express');
 const { Pool } = require('pg');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const path = require('path');
 
 const app = express();
 app.use(cors());
@@ -12,16 +13,86 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-// --- INSTALACIÓN MAESTRA (JA12) ---
+// ==========================================
+// 1. PANTALLAS VISUALES (HTML EN EL SERVIDOR)
+// ==========================================
+
+// PANTALLA A: ESCÁNER PARA CELULAR
+const HTML_ESCANER = `
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Escáner El Retén</title>
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <style>
+        body { font-family: sans-serif; text-align: center; background: #111; color: white; margin: 0; }
+        #reader { width: 100%; max-width: 500px; margin: auto; border-bottom: 2px solid #0099ff; }
+        .res-box { padding: 20px; background: white; color: black; border-radius: 20px 20px 0 0; position: fixed; bottom: 0; width: 100%; display: none; }
+        button { width: 100%; padding: 15px; font-size: 1rem; margin-top: 10px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        .btn-blue { background: #004aad; color: white; }
+        .btn-red { background: #dc3545; color: white; }
+    </style>
+</head>
+<body>
+    <h3 style="margin:10px;">📷 Lector de Cédulas</h3>
+    <div id="reader"></div>
+    <div id="resultado" class="res-box">
+        <h3>Cédula Detectada:</h3>
+        <input type="text" id="cedula-leida" style="font-size:1.5rem; width:100%; text-align:center; margin-bottom:10px;" readonly>
+        <button class="btn-blue" onclick="verificar()">🔍 VERIFICAR ESTADO</button>
+        <button class="btn-red" onclick="reiniciar()">🔄 ESCANEAR OTRA</button>
+    </div>
+    <script>
+        let scanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: 250 });
+        scanner.render(onScanSuccess);
+
+        function onScanSuccess(decodedText) {
+            scanner.clear();
+            document.getElementById('resultado').style.display = 'block';
+            // Limpieza básica por si lee PDF417 basura
+            let cedulaLimpia = decodedText.replace(/[^0-9]/g, ''); 
+            // Si es muy largo (PDF417 completo), tratamos de extraer la cédula (lógica simple)
+            if(cedulaLimpia.length > 15) {
+                // Esto es un parche temporal, el PDF417 es complejo. 
+                // Asumimos que la cédula está en los primeros dígitos o pedimos digitar.
+                alert("Código complejo detectado. Por favor verifique el número.");
+            }
+            document.getElementById('cedula-leida').value = cedulaLimpia || decodedText;
+            navigator.vibrate(200);
+        }
+
+        async function verificar() {
+            const ced = document.getElementById('cedula-leida').value;
+            alert("Consultando: " + ced + " (Aquí conectaremos con la BD en el siguiente paso)");
+            // Aquí iría el fetch al API
+        }
+
+        function reiniciar() { location.reload(); }
+    </script>
+</body>
+</html>
+`;
+
+// RUTA PARA VER EL ESCÁNER
+app.get('/escaner', (req, res) => {
+    res.send(HTML_ESCANER);
+});
+
+// ==========================================
+// 2. BACKEND Y LOGICA DE NEGOCIO (JA12)
+// ==========================================
+
+// --- INSTALACIÓN MAESTRA ---
 app.get('/setup_master_v2', async (req, res) => {
   try {
-    // Limpieza en orden de dependencia
     await pool.query('DROP TABLE IF EXISTS intentos_fallidos;');
     await pool.query('DROP TABLE IF EXISTS referidos;');
-    await pool.query('DROP TABLE IF EXISTS equipo_trabajo;'); // NUEVA TABLA
+    await pool.query('DROP TABLE IF EXISTS equipo_trabajo;');
     await pool.query('DROP TABLE IF EXISTS usuarios;');
     
-    // 1. USUARIOS (Admin, Concejal, Coordinadores)
+    // 1. USUARIOS
     await pool.query(`
       CREATE TABLE usuarios (
         id SERIAL PRIMARY KEY,
@@ -37,19 +108,18 @@ app.get('/setup_master_v2', async (req, res) => {
       );
     `);
 
-    // 2. EQUIPO DE TRABAJO (Los que el Admin le asigna al Coordinador)
-    // Ej: El empleado "Pedro" que trabaja para el Coordinador "Juan"
+    // 2. EQUIPO
     await pool.query(`
       CREATE TABLE equipo_trabajo (
         id SERIAL PRIMARY KEY,
         nombre_completo VARCHAR(100) NOT NULL,
         cedula VARCHAR(20) NOT NULL,
-        rol_equipo VARCHAR(50) NOT NULL, -- 'EMPLEADO', 'CONTRATISTA', 'LIDER_PROCESO'
+        rol_equipo VARCHAR(50) NOT NULL,
         coordinador_id INTEGER REFERENCES usuarios(id) ON DELETE CASCADE
       );
     `);
 
-    // 3. REFERIDOS (Votantes)
+    // 3. REFERIDOS
     await pool.query(`
       CREATE TABLE referidos (
         id SERIAL PRIMARY KEY,
@@ -60,12 +130,12 @@ app.get('/setup_master_v2', async (req, res) => {
         celular VARCHAR(20),
         estado_voto BOOLEAN DEFAULT FALSE,
         observaciones TEXT,
-        responsable_id INTEGER REFERENCES usuarios(id) ON DELETE CASCADE, -- El Coordinador dueño
-        equipo_id INTEGER REFERENCES equipo_trabajo(id) -- Quién lo trajo realmente (El empleado)
+        responsable_id INTEGER REFERENCES usuarios(id) ON DELETE CASCADE,
+        equipo_id INTEGER REFERENCES equipo_trabajo(id)
       );
     `);
 
-    // 4. INTENTOS FALLIDOS (Auditoría)
+    // 4. FALLIDOS
     await pool.query(`
       CREATE TABLE intentos_fallidos (
         id SERIAL PRIMARY KEY,
@@ -83,14 +153,11 @@ app.get('/setup_master_v2', async (req, res) => {
       VALUES ('Admin', 'General', 'admin', 'admin2026', 'ADMIN');
     `);
 
-    res.send("✅ (JA12) SISTEMA JERÁRQUICO INSTALADO: Admin -> Coordinador -> Equipo -> Votante.");
-  } catch (err) {
-    console.error(err);
-    res.send("❌ ERROR: " + err.message);
-  }
+    res.send("✅ SISTEMA LISTO Y REINICIADO (V2)");
+  } catch (err) { res.send("❌ ERROR: " + err.message); }
 });
 
-// --- LOGIN ---
+// --- API LOGIN ---
 app.post('/api/login', async (req, res) => {
   const { usuario, password } = req.body;
   try {
@@ -100,7 +167,7 @@ app.post('/api/login', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// --- GESTIÓN DE USUARIOS (CRUD COMPLETO) ---
+// --- API USUARIOS ---
 app.get('/api/usuarios', async (req, res) => {
   const result = await pool.query('SELECT * FROM usuarios ORDER BY id DESC');
   res.json(result.rows);
@@ -109,45 +176,29 @@ app.get('/api/usuarios', async (req, res) => {
 app.post('/api/usuarios', async (req, res) => {
   const { nombres, apellidos, tipo_doc, num_doc, correo, celular, password, rol } = req.body;
   try {
-    const r = await pool.query(`
-      INSERT INTO usuarios (nombres, apellidos, tipo_documento, numero_documento, correo, celular, password, rol)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id
-    `, [nombres, apellidos, tipo_doc, num_doc, correo, celular, password, rol]);
-    res.json({ exito: true, id: r.rows[0].id });
+    await pool.query(`INSERT INTO usuarios (nombres, apellidos, tipo_documento, numero_documento, correo, celular, password, rol) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, [nombres, apellidos, tipo_doc, num_doc, correo, celular, password, rol]);
+    res.json({ exito: true });
   } catch (err) { res.json({ exito: false, error: err.message }); }
 });
 
-app.put('/api/usuarios/:id', async (req, res) => { // EDITAR
-  const { id } = req.params;
-  const { nombres, apellidos, celular, password } = req.body;
+app.delete('/api/usuarios/:id', async (req, res) => {
   try {
-    await pool.query('UPDATE usuarios SET nombres=$1, apellidos=$2, celular=$3, password=$4 WHERE id=$5', 
-    [nombres, apellidos, celular, password, id]);
+    await pool.query('DELETE FROM usuarios WHERE id = $1', [req.params.id]);
     res.json({ exito: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.delete('/api/usuarios/:id', async (req, res) => { // ELIMINAR
-  const { id } = req.params;
-  try {
-    await pool.query('DELETE FROM usuarios WHERE id = $1', [id]);
-    res.json({ exito: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// --- GESTIÓN DE EQUIPO (SUB-USUARIOS) ---
+// --- API EQUIPO ---
 app.post('/api/equipo', async (req, res) => {
   const { nombre, cedula, rol, coordinador_id } = req.body;
   try {
-    await pool.query('INSERT INTO equipo_trabajo (nombre_completo, cedula, rol_equipo, coordinador_id) VALUES ($1, $2, $3, $4)', 
-    [nombre, cedula, rol, coordinador_id]);
+    await pool.query('INSERT INTO equipo_trabajo (nombre_completo, cedula, rol_equipo, coordinador_id) VALUES ($1, $2, $3, $4)', [nombre, cedula, rol, coordinador_id]);
     res.json({ exito: true });
   } catch (err) { res.json({ exito: false, error: err.message }); }
 });
 
 app.get('/api/equipo/:coordinador_id', async (req, res) => {
-  const { coordinador_id } = req.params;
-  const result = await pool.query('SELECT * FROM equipo_trabajo WHERE coordinador_id = $1', [coordinador_id]);
+  const result = await pool.query('SELECT * FROM equipo_trabajo WHERE coordinador_id = $1', [req.params.coordinador_id]);
   res.json(result.rows);
 });
 
@@ -156,50 +207,27 @@ app.delete('/api/equipo/:id', async (req, res) => {
   res.json({ exito: true });
 });
 
-// --- REGISTRO VOTANTES (Validación Duplicados) ---
+// --- API REFERIDOS ---
 app.post('/api/crear_referido', async (req, res) => {
   const { nombre, tipo_doc, num_doc, mesa, celular, observaciones, responsable_id, equipo_id } = req.body;
-  
   try {
-    // Verificar duplicidad
     const check = await pool.query('SELECT * FROM referidos WHERE numero_documento = $1', [num_doc]);
-    
     if (check.rows.length > 0) {
-      // Guardar Fallido
-      const datosIntento = JSON.stringify(req.body);
-      await pool.query(`INSERT INTO intentos_fallidos (numero_documento, usuario_intento_id, motivo, datos_json) VALUES ($1, $2, 'DUPLICIDAD', $3)`, [num_doc, responsable_id, datosIntento]);
-      return res.json({ exito: false, mensaje: '⚠️ CÉDULA DUPLICADA. Intento registrado.' });
+        const datosIntento = JSON.stringify(req.body);
+        await pool.query(`INSERT INTO intentos_fallidos (numero_documento, usuario_intento_id, motivo, datos_json) VALUES ($1, $2, 'DUPLICIDAD', $3)`, [num_doc, responsable_id, datosIntento]);
+        return res.json({ exito: false, mensaje: '⚠️ CÉDULA DUPLICADA.' });
     }
-
-    // Guardar Exitoso
-    await pool.query(`
-      INSERT INTO referidos (nombre_completo, tipo_documento, numero_documento, mesa_votacion, celular, observaciones, responsable_id, equipo_id)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-    `, [nombre, tipo_doc, num_doc, mesa, celular, observaciones, responsable_id, equipo_id || null]);
-
-    res.json({ exito: true, mensaje: 'Votante registrado correctamente.' });
+    await pool.query(`INSERT INTO referidos (nombre_completo, tipo_documento, numero_documento, mesa_votacion, celular, observaciones, responsable_id, equipo_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, [nombre, tipo_doc, num_doc, mesa, celular, observaciones, responsable_id, equipo_id || null]);
+    res.json({ exito: true, mensaje: 'Votante registrado.' });
   } catch (err) { res.status(500).json({ exito: false, error: err.message }); }
 });
 
-// --- REPORTES Y DÍA D ---
 app.get('/api/referidos/mis_registros/:id', async (req, res) => {
-  const { id } = req.params;
-  // Trae también el nombre del miembro del equipo que lo trajo
-  const result = await pool.query(`
-    SELECT r.*, e.nombre_completo as nombre_equipo, e.rol_equipo 
-    FROM referidos r 
-    LEFT JOIN equipo_trabajo e ON r.equipo_id = e.id 
-    WHERE r.responsable_id = $1 ORDER BY r.id DESC`, [id]);
+  const result = await pool.query(`SELECT r.*, e.nombre_completo as nombre_equipo FROM referidos r LEFT JOIN equipo_trabajo e ON r.equipo_id = e.id WHERE r.responsable_id = $1 ORDER BY r.id DESC`, [req.params.id]);
   res.json(result.rows);
 });
 
-// MARCAR VOTO (DÍA D)
-app.put('/api/referidos/votar/:cedula', async (req, res) => {
-  const { cedula } = req.params;
-  await pool.query('UPDATE referidos SET estado_voto = true WHERE numero_documento = $1', [cedula]);
-  res.json({ exito: true });
-});
-
+// --- API DASHBOARD ---
 app.get('/api/dashboard/stats', async (req, res) => {
   const total = await pool.query('SELECT COUNT(*) FROM referidos');
   const votos = await pool.query('SELECT COUNT(*) FROM referidos WHERE estado_voto = true');
@@ -208,5 +236,5 @@ app.get('/api/dashboard/stats', async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`(JA12) Servidor v2 corriendo en puerto ${PORT}`);
+  console.log(`(JA12) Servidor LIVE en puerto ${PORT}`);
 });
