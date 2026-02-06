@@ -13,7 +13,7 @@ const pool = new Pool({
 });
 
 // =================================================================
-// CÓDIGO MAESTRO V6: FORZADO DE PERMISOS + MICROBLINK
+// CÓDIGO MAESTRO V7: ARRANQUE SINCRONIZADO
 // =================================================================
 const APP_HTML = `
 <!DOCTYPE html>
@@ -23,7 +23,7 @@ const APP_HTML = `
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Sistema Electoral</title>
     
-    <script src="https://cdn.jsdelivr.net/npm/@microblink/blinkid-in-browser-sdk@6.1.0/ui/dist/blinkid-in-browser/blinkid-in-browser.js"></script>
+    <script src="https://unpkg.com/@microblink/blinkid-in-browser-sdk@5.8.0/ui/dist/blinkid-in-browser/blinkid-in-browser.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     
     <style>
@@ -39,8 +39,13 @@ const APP_HTML = `
         #layer-camera {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: #000; z-index: 9999;
-            display: none; /* Oculto */
+            visibility: hidden; /* Usamos visibility en vez de display para precarga */
+            display: flex; 
             flex-direction: column;
+        }
+
+        #layer-camera.active {
+            visibility: visible;
         }
 
         /* ESTILOS GENERALES */
@@ -59,12 +64,12 @@ const APP_HTML = `
         }
 
         /* COMPONENTE MICROBLINK */
-        blinkid-in-browser { width: 100%; height: 100%; display: block; }
+        blinkid-in-browser { width: 100%; height: 100%; display: block; background: black; }
 
         /* LOADING CÁMARA */
         #cam-msg {
             position: absolute; top: 50%; width: 100%; text-align: center; color: white;
-            transform: translateY(-50%); z-index: 9000;
+            transform: translateY(-50%); z-index: 9000; pointer-events: none;
         }
 
         /* MODAL RESULTADOS */
@@ -97,7 +102,7 @@ const APP_HTML = `
         <div id="view-dashboard" style="display:none; padding-top: 60px;">
             <div style="background:#003366; color:white; padding:15px; position:fixed; top:0; left:0; width:100%; z-index:100; display:flex; justify-content:space-between; box-sizing:border-box;">
                 <b id="u-name">Usuario</b>
-                <span onclick="logout()" style="text-decoration:underline;">SALIR</span>
+                <span onclick="logout()" style="text-decoration:underline; cursor:pointer;">SALIR</span>
             </div>
 
             <div class="card" onclick="irRegistro()">
@@ -105,7 +110,7 @@ const APP_HTML = `
                 <p>Ingreso sin escáner</p>
             </div>
 
-            <div class="card" onclick="iniciarSecuenciaCamara()" style="border: 3px solid #28a745;">
+            <div class="card" onclick="prepararCamara()" style="border: 3px solid #28a745;">
                 <h3 style="color:#28a745">📷 OPERACIÓN DÍA D</h3>
                 <p>Escáner de Cédulas</p>
             </div>
@@ -133,17 +138,17 @@ const APP_HTML = `
     <div id="layer-camera">
         <div class="cam-header">
             <span>Escaneando...</span>
-            <button onclick="cerrarCamara()" style="background:white; color:black; border:none; padding:5px 15px; border-radius:20px; font-weight:bold;">X</button>
+            <button onclick="cerrarCamara()" style="background:white; color:black; border:none; padding:5px 15px; border-radius:20px; font-weight:bold;">CERRAR</button>
         </div>
         
         <div id="cam-msg">
             <i class="fas fa-spinner fa-spin fa-3x"></i><br><br>
-            <span id="cam-txt">Inicializando...</span>
+            <span id="cam-txt">Iniciando...</span>
         </div>
 
         <blinkid-in-browser
             id="scanner-el"
-            engine-location="https://cdn.jsdelivr.net/npm/@microblink/blinkid-in-browser-sdk@6.1.0/resources/"
+            engine-location="https://unpkg.com/@microblink/blinkid-in-browser-sdk@5.8.0/resources/"
         ></blinkid-in-browser>
     </div>
 
@@ -155,77 +160,96 @@ const APP_HTML = `
         const API = window.location.origin;
         let currentUser = null;
 
-        // --- 1. SECUENCIA DE ARRANQUE CÁMARA (CRÍTICO) ---
-        async function iniciarSecuenciaCamara() {
-            // A. Cambiar UI inmediatamente
-            document.getElementById('layer-ui').style.display = 'none';
-            document.getElementById('layer-camera').style.display = 'flex';
-            document.getElementById('cam-txt').innerText = "Solicitando permiso de cámara...";
+        // --- MANEJO DE VISTAS ---
+        function verDashboard() {
+            document.getElementById('view-login').style.display = 'none';
+            document.getElementById('view-registro').style.display = 'none';
+            document.getElementById('view-dashboard').style.display = 'block';
+            cargarStats();
+        }
+        function irRegistro() {
+            document.getElementById('view-dashboard').style.display = 'none';
+            document.getElementById('view-registro').style.display = 'block';
+        }
+
+        // --- LOGICA CAMARA (CRITICO: ORDEN DE EJECUCIÓN) ---
+        function prepararCamara() {
+            // 1. PRIMERO HACEMOS VISIBLE LA CAPA (Para que el navegador no mate la cámara)
+            const layer = document.getElementById('layer-camera');
+            layer.classList.add('active'); 
+            
+            document.getElementById('cam-txt').innerText = "Cargando motor...";
+
+            // 2. ESPERAMOS UN MOMENTO PARA QUE EL DOM SE PINTE
+            setTimeout(() => {
+                iniciarMicroblink();
+            }, 200);
+        }
+
+        function iniciarMicroblink() {
+            const el = document.getElementById('scanner-el');
+            
+            // Si ya tiene licencia, es porque ya se usó, solo reiniciamos la UI
+            if(el.licenseKey) {
+                document.getElementById('cam-msg').style.display = 'none';
+                return;
+            }
 
             try {
-                // B. FORZAR PERMISO NATIVO (Truco para despertar al navegador)
-                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                el.licenseKey = LICENCIA;
+                el.recognizers = ['BlinkIdRecognizer'];
                 
-                // Si llegamos aquí, dio permiso. Cerramos este stream temporal.
-                stream.getTracks().forEach(track => track.stop());
-                
-                // C. Ahora sí, arrancamos el motor pesado
-                document.getElementById('cam-txt').innerText = "Cargando motor de IA...";
-                arrancarMicroblink();
+                // Configurar para evitar conflictos de UI
+                el.uiSettings = { 
+                    enableFullScreen: false, // Controlamos nosotros el tamaño div
+                    showOverlay: true 
+                };
 
-            } catch (err) {
-                alert("❌ No diste permiso de cámara. No podemos escanear.");
+                // LISTENERS
+                el.addEventListener('scanSuccess', (ev) => {
+                    const results = ev.detail.recognizers.BlinkIdRecognizer;
+                    if (results.resultState === 'Valid') {
+                        const docNumber = results.documentNumber || results.mrz.documentNumber || results.mrz.primaryId;
+                        if(docNumber) {
+                            let cedula = docNumber.replace(/[^0-9]/g, ''); 
+                            if(cedula.length > 5) {
+                                // Pausar visualmente y procesar
+                                cerrarCamara();
+                                procesarCedula(cedula);
+                            }
+                        }
+                    }
+                });
+
+                el.addEventListener('fatalError', (ev) => {
+                    alert("Error Fatal: " + ev.detail.message);
+                    cerrarCamara();
+                });
+
+                el.addEventListener('scanError', (ev) => {
+                     if(ev.detail.code === "LicenseError") {
+                        alert("Licencia rechazada por el dominio.");
+                        cerrarCamara();
+                     }
+                });
+
+                // Ocultar mensaje de carga
+                setTimeout(() => { document.getElementById('cam-msg').style.display = 'none'; }, 2500);
+
+            } catch (e) {
+                alert("Error al iniciar componente: " + e.message);
                 cerrarCamara();
             }
         }
 
-        function arrancarMicroblink() {
-            const el = document.getElementById('scanner-el');
-            
-            // Configuración
-            el.licenseKey = LICENCIA;
-            el.recognizers = ['BlinkIdRecognizer'];
-            el.uiSettings = { 
-                enableFullScreen: false, // Controlamos nosotros el tamaño
-                showOverlay: true 
-            };
-
-            // Eventos
-            el.addEventListener('scanSuccess', (ev) => {
-                const results = ev.detail.recognizers.BlinkIdRecognizer;
-                if (results.resultState === 'Valid') {
-                    const docNumber = results.documentNumber || results.mrz.documentNumber || results.mrz.primaryId;
-                    if(docNumber) {
-                        let cedula = docNumber.replace(/[^0-9]/g, ''); // Limpiar
-                        if(cedula.length > 5) {
-                            cerrarCamara(); // Éxito
-                            procesarCedula(cedula);
-                        }
-                    }
-                }
-            });
-
-            el.addEventListener('fatalError', (ev) => {
-                alert("Error del motor: " + ev.detail.message);
-                cerrarCamara();
-            });
-
-            el.addEventListener('scanError', (ev) => {
-                 if(ev.detail.code === "LicenseError") alert("Error de Licencia (Dominio incorrecto)");
-            });
-
-            // Ocultar mensaje de carga tras unos segundos
-            setTimeout(() => { document.getElementById('cam-msg').style.display = 'none'; }, 2000);
-        }
-
         function cerrarCamara() {
-            document.getElementById('layer-camera').style.display = 'none';
-            document.getElementById('layer-ui').style.display = 'block';
-            // Recargar para limpiar la memoria de video (importante en iOS)
-            window.location.reload();
+            // Ocultamos la capa
+            document.getElementById('layer-camera').classList.remove('active');
+            // Recargar para limpiar memoria de la cámara (Seguro en iOS/Android)
+            setTimeout(() => { location.reload(); }, 500); 
         }
 
-        // --- 2. LÓGICA DE NEGOCIO ---
+        // --- LOGICA DE NEGOCIO ---
         
         async function procesarCedula(cedula) {
             mostrarModal('loading', 'Verificando '+cedula);
@@ -273,7 +297,7 @@ const APP_HTML = `
             cargarStats();
         }
 
-        // --- 3. LOGIN Y NAVEGACION ---
+        // --- LOGIN ---
         async function doLogin() {
             const u = document.getElementById('l-user').value;
             const p = document.getElementById('l-pass').value;
@@ -302,15 +326,6 @@ const APP_HTML = `
         }
 
         function logout() { localStorage.removeItem('user'); location.reload(); }
-        function verDashboard() {
-            document.getElementById('view-registro').style.display = 'none';
-            document.getElementById('view-dashboard').style.display = 'block';
-            cargarStats();
-        }
-        function irRegistro() {
-            document.getElementById('view-dashboard').style.display = 'none';
-            document.getElementById('view-registro').style.display = 'block';
-        }
 
         async function guardar() {
             const data = {
@@ -331,7 +346,6 @@ const APP_HTML = `
             document.getElementById('s-votos').innerText = d.votos;
         }
 
-        // Init
         window.onload = checkSession;
 
     </script>
