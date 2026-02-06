@@ -12,12 +12,15 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-// --- RUTA DE INSTALACIÓN (DATOS GENÉRICOS) ---
+// --- RUTA DE REPARACIÓN Y SETUP ---
 app.get('/setup', async (req, res) => {
   try {
-    // 1. Crear tabla de Votantes
+    // 1. BORRAR la tabla vieja si existe (Para corregir el error de columnas)
+    await pool.query('DROP TABLE IF EXISTS referidos;');
+    
+    // 2. CREAR la tabla nueva con las columnas correctas
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS referidos (
+      CREATE TABLE referidos (
         id SERIAL PRIMARY KEY,
         cedula VARCHAR(20) UNIQUE NOT NULL,
         nombre VARCHAR(100),
@@ -27,15 +30,13 @@ app.get('/setup', async (req, res) => {
       );
     `);
 
-    // 2. Insertar a JUAN PÉREZ como prueba (Cédula 123456)
+    // 3. Insertar a JUAN PÉREZ como prueba
     await pool.query(`
       INSERT INTO referidos (cedula, nombre, mesa_votacion, lider_cargo) 
-      VALUES ('123456', 'Juan Pérez', 'Mesa 1', 'Líder de Prueba')
-      ON CONFLICT (cedula) DO UPDATE 
-      SET nombre = 'Juan Pérez';
+      VALUES ('123456', 'Juan Pérez', 'Mesa 1', 'Líder de Prueba');
     `);
 
-    res.send("✅ LISTO: Base de datos configurada con Usuario de Prueba.");
+    res.send("✅ ¡ARREGLADO! Tabla reconstruida y Juan Pérez agregado.");
   } catch (err) {
     console.error(err);
     res.send("❌ ERROR: " + err.message);
