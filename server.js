@@ -13,7 +13,7 @@ const pool = new Pool({
 });
 
 // =================================================================
-// 1. INTERFAZ GRÁFICA CORREGIDA (CSS MÓVIL ROBUSTO)
+// 1. INTERFAZ GRÁFICA BLINDADA PARA MÓVILES
 // =================================================================
 const APP_HTML = `
 <!DOCTYPE html>
@@ -29,13 +29,13 @@ const APP_HTML = `
     <style>
         :root { --primary: #003366; --bg: #f4f7f6; --white: #ffffff; --green: #28a745; --red: #dc3545; }
         
-        body { 
-            font-family: 'Segoe UI', sans-serif; 
-            background-color: var(--bg); 
+        body, html { 
+            height: 100%;
             margin: 0; 
             padding: 0; 
-            user-select: none;
-            overflow-x: hidden; /* Evita desplazamiento lateral */
+            font-family: 'Segoe UI', sans-serif; 
+            background-color: var(--bg); 
+            overflow-x: hidden; 
         }
         
         /* HEADER FIJO */
@@ -46,25 +46,25 @@ const APP_HTML = `
             display: flex; 
             justify-content: space-between; 
             align-items: center; 
-            position: fixed; /* Fijo arriba */
+            position: fixed; 
             top: 0; left: 0; right: 0;
-            z-index: 9999; 
-            box-shadow: 0 2px 10px rgba(0,0,0,0.2); 
+            z-index: 100; 
             height: 60px;
             box-sizing: border-box;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2); 
         }
 
-        /* CONTENEDOR PRINCIPAL (Para no quedar debajo del header) */
+        /* CONTENEDOR PRINCIPAL */
         .main-content {
-            padding-top: 80px; /* Espacio para el header */
+            padding-top: 80px; 
             padding-bottom: 20px;
             min-height: 100vh;
+            overflow-y: auto; /* Permite scroll solo aquí */
         }
         
-        /* PANTALLAS (IMPORTANTE: display none por defecto) */
+        /* PANTALLAS: OCULTAS POR DEFECTO */
         .screen { 
             display: none !important; 
-            width: 100%;
         }
         .screen.active { 
             display: block !important; 
@@ -82,43 +82,50 @@ const APP_HTML = `
             max-width: 500px;
         }
 
-        /* ESCÁNER MICROBLINK (AJUSTE MÓVIL) */
+        /* --- ARREGLO DE CÁMARA (FULLSCREEN REAL) --- */
         #screen-microblink {
             position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
+            top: 0; left: 0; width: 100%; height: 100%;
             background: black;
-            z-index: 10000; /* Por encima de todo */
-            padding: 0;
+            z-index: 99999; /* ENCIMA DE TODO */
+            display: none;
+        }
+        
+        #screen-microblink.active {
+            display: flex !important;
+            flex-direction: column;
         }
 
         blinkid-in-browser {
             width: 100%;
-            height: 100%;
+            height: 100%; 
+            flex: 1;
             display: block;
+            background: black; /* Evita parpadeo blanco */
         }
 
         .btn-cancelar-scan {
             position: absolute; 
             top: 20px; left: 20px; 
-            z-index: 10001; 
-            background: white; 
+            z-index: 100000; 
+            background: rgba(255,255,255,0.9); 
             color: black; 
             border: none; 
             padding: 10px 20px; 
-            border-radius: 20px;
+            border-radius: 30px;
             font-weight: bold;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.5);
         }
 
-        /* ESTILOS GENERALES */
+        /* ESTILOS BOTONES E INPUTS */
         .btn { width: 100%; padding: 15px; border: none; border-radius: 8px; font-size: 1rem; font-weight: bold; cursor: pointer; margin-top: 10px; color: white; }
         .btn-primary { background: var(--primary); }
         .btn-green { background: var(--green); }
         input, select { width: 100%; padding: 12px; margin-bottom: 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 1rem; box-sizing: border-box; }
 
-        /* MODAL */
-        .result-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: none; align-items: center; justify-content: center; z-index: 20000; }
-        .modal-box { background: white; width: 85%; max-width: 400px; padding: 20px; border-radius: 15px; text-align: center; }
+        /* MODAL RESULTADO */
+        .result-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); display: none; align-items: center; justify-content: center; z-index: 200000; }
+        .modal-box { background: white; width: 85%; max-width: 400px; padding: 25px; border-radius: 15px; text-align: center; box-shadow: 0 0 20px rgba(255,255,255,0.2); }
 
         @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
     </style>
@@ -126,13 +133,13 @@ const APP_HTML = `
 <body>
 
     <script>
-        // TU LLAVE DE RENDER
+        // TU LLAVE RENDER
         const LICENCIA_MICROBLINK = "sRwCABpzaXN0ZW1hLXJldGVuLm9ucmVuZGVyLmNvbQZsZXlKRGNtVmhkR1ZrVDI0aU9qRTNOekF6TkRBNE56UXhORE1zSWtOeVpXRjBaV1JHYjNJaU9pSmhOVFkyT1RNeFppMWpNbVEyTFRRMk1UY3RZalF3T0MwM09Ea3dNVFJrT0RFMVpqQWlmUT09Xx8uagCPC8T3b3Qa3oHIoGgMBAgsat/gyX1+szaTbpLSxKbea+5LfnKoV2qjcJo5KX2BZfrFUBxFP093X0F3XpjecVfoJx+llc9E4c5k8MBT59V+d+ll6wtjn1EnjA=="; 
     </script>
 
     <div class="navbar" id="nav" style="display:none;">
-        <div id="user-display" style="font-weight:bold;">Usuario</div>
-        <div onclick="logout()" style="cursor:pointer; padding: 10px;"><i class="fas fa-sign-out-alt"></i> SALIR</div>
+        <div id="user-display" style="font-weight:bold; margin-left:10px;">Usuario</div>
+        <div onclick="logout()" style="cursor:pointer; padding: 10px; margin-right:5px;"><i class="fas fa-sign-out-alt"></i> SALIR</div>
     </div>
 
     <div class="main-content">
@@ -140,10 +147,10 @@ const APP_HTML = `
         <div id="screen-login" class="screen active" style="padding-top: 50px;">
             <div class="card" style="text-align: center;">
                 <h2 style="color: var(--primary);">CONTROL ELECTORAL</h2>
-                <p>El Retén 2026</p>
+                <img src="https://cdn-icons-png.flaticon.com/512/2633/2633854.png" width="80" style="margin-bottom:10px;">
                 <br>
-                <input type="number" id="login-user" placeholder="Cédula Usuario">
-                <input type="password" id="login-pass" placeholder="Contraseña">
+                <input type="number" id="login-user" placeholder="Cédula Usuario" style="text-align:center;">
+                <input type="password" id="login-pass" placeholder="Contraseña" style="text-align:center;">
                 <button class="btn btn-primary" onclick="login()">INGRESAR</button>
                 <p id="error-msg" style="color:red; display:none; margin-top:10px;">Credenciales incorrectas</p>
             </div>
@@ -152,34 +159,45 @@ const APP_HTML = `
         <div id="screen-dashboard" class="screen">
             <div class="card">
                 <h3>👋 Hola, <span id="dash-name">...</span></h3>
-                <button class="btn btn-primary" onclick="irA('screen-registro')">📝 REGISTRO MANUAL</button>
+                <p style="color:#666; font-size:0.9rem;">Seleccione una opción:</p>
+                <button class="btn btn-primary" onclick="irA('screen-registro')"><i class="fas fa-edit"></i> REGISTRO MANUAL</button>
                 <hr style="margin:20px 0; border-top:1px solid #eee;">
-                <button class="btn btn-green" onclick="iniciarMicroblink()">📷 ESCÁNER DÍA D</button>
+                <button class="btn btn-green" onclick="iniciarMicroblink()"><i class="fas fa-camera"></i> ESCÁNER DÍA D</button>
             </div>
+            
             <div class="card">
-                <div style="display:flex; justify-content:space-around;">
-                    <div style="text-align:center;"><h2><span id="stat-total">0</span></h2><small>Total</small></div>
-                    <div style="text-align:center; color:green;"><h2><span id="stat-votos">0</span></h2><small>Votaron</small></div>
+                <h4 style="margin-top:0;">📊 Resumen Global</h4>
+                <div style="display:flex; justify-content:space-around; margin-top:15px;">
+                    <div style="text-align:center;">
+                        <span id="stat-total" style="font-size:2rem; font-weight:bold; color:#333;">0</span>
+                        <div style="font-size:0.8rem; color:#666;">REFERIDOS</div>
+                    </div>
+                    <div style="text-align:center;">
+                        <span id="stat-votos" style="font-size:2rem; font-weight:bold; color:var(--green);">0</span>
+                        <div style="font-size:0.8rem; color:var(--green);">YA VOTARON</div>
+                    </div>
                 </div>
             </div>
         </div>
 
         <div id="screen-registro" class="screen">
-            <button class="btn" style="background:#ccc; color:#333; width:auto; margin-bottom:10px;" onclick="irA('screen-dashboard')">⬅ Volver</button>
             <div class="card">
-                <h3>Nuevo Votante</h3>
-                <input type="text" id="reg-nombre" placeholder="Nombre">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                    <h3>Nuevo Votante</h3>
+                    <button onclick="irA('screen-dashboard')" style="background:transparent; color:#666; border:1px solid #ccc; padding:5px 10px; border-radius:5px; width:auto;">X</button>
+                </div>
+                <input type="text" id="reg-nombre" placeholder="Nombre Completo">
                 <input type="number" id="reg-cedula" placeholder="Cédula">
                 <input type="tel" id="reg-cel" placeholder="Celular">
                 <input type="text" id="reg-mesa" placeholder="Mesa">
-                <label><b>Vinculado Por:</b></label>
+                <label style="font-size:0.9rem; color:#666;">Vinculado Por:</label>
                 <select id="reg-equipo"><option>Cargando...</option></select>
-                <button class="btn btn-primary" onclick="guardarRegistro()">GUARDAR</button>
+                <button class="btn btn-primary" onclick="guardarRegistro()">GUARDAR REGISTRO</button>
             </div>
         </div>
 
-    </div> <div id="screen-microblink" class="screen">
-        <button class="btn-cancelar-scan" onclick="detenerMicroblink()">⬅ CANCELAR / VOLVER</button>
+    </div> <div id="screen-microblink">
+        <button class="btn-cancelar-scan" onclick="detenerMicroblink()"><i class="fas fa-arrow-left"></i> VOLVER</button>
         <blinkid-in-browser
             id="my-blinkid-component"
             engine-location="https://unpkg.com/@microblink/blinkid-in-browser-sdk@5.8.0/resources/"
@@ -196,7 +214,8 @@ const APP_HTML = `
 
         // --- MICROBLINK LOGIC ---
         function iniciarMicroblink() {
-            irA('screen-microblink');
+            // Activar pantalla fullscreen negra
+            document.getElementById('screen-microblink').classList.add('active');
             
             const blinkId = document.querySelector('blinkid-in-browser');
             blinkId.licenseKey = LICENCIA_MICROBLINK;
@@ -218,13 +237,15 @@ const APP_HTML = `
 
             blinkId.addEventListener('scanError', (ev) => {
                  if(ev.detail.code === "LicenseError") {
-                    alert("Error de Licencia: Verifica el dominio.");
+                    alert("Error de Licencia: Verifica el dominio en Microblink Dashboard.");
                     detenerMicroblink();
                  }
             });
         }
 
         function detenerMicroblink() {
+            // Quitar clase active para ocultar capa negra
+            document.getElementById('screen-microblink').classList.remove('active');
             irA('screen-dashboard');
         }
 
@@ -254,7 +275,7 @@ const APP_HTML = `
                 if(data.exito) {
                     currentUser = data.usuario;
                     irA('screen-dashboard');
-                    document.getElementById('dash-name').innerText = currentUser.nombres;
+                    document.getElementById('dash-name').innerText = currentUser.nombres.split(' ')[0]; // Solo primer nombre
                     cargarStats();
                     cargarEquipo();
                 } else { document.getElementById('error-msg').style.display = 'block'; }
