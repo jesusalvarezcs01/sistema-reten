@@ -12,15 +12,16 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-// --- RUTA MAESTRA DE INSTALACIÓN (PDF COMPLETO) ---
-app.get('/setup_master', async (req, res) => {
+// --- INSTALACIÓN MAESTRA (JA12) ---
+app.get('/setup_master_v2', async (req, res) => {
   try {
-    // Borrar versiones anteriores para garantizar estructura PDF
+    // Limpieza en orden de dependencia
     await pool.query('DROP TABLE IF EXISTS intentos_fallidos;');
     await pool.query('DROP TABLE IF EXISTS referidos;');
+    await pool.query('DROP TABLE IF EXISTS equipo_trabajo;'); // NUEVA TABLA
     await pool.query('DROP TABLE IF EXISTS usuarios;');
     
-    // 1. TABLA USUARIOS (Req 2.1)
+    // 1. USUARIOS (Admin, Concejal, Coordinadores)
     await pool.query(`
       CREATE TABLE usuarios (
         id SERIAL PRIMARY KEY,
@@ -31,12 +32,24 @@ app.get('/setup_master', async (req, res) => {
         correo VARCHAR(100),
         celular VARCHAR(20),
         password VARCHAR(100) NOT NULL,
-        rol VARCHAR(20) NOT NULL, -- ADMIN, CONCEJAL, COORDINADOR
+        rol VARCHAR(20) NOT NULL, 
         activo BOOLEAN DEFAULT TRUE
       );
     `);
 
-    // 2. TABLA REFERIDOS (Req 2.2)
+    // 2. EQUIPO DE TRABAJO (Los que el Admin le asigna al Coordinador)
+    // Ej: El empleado "Pedro" que trabaja para el Coordinador "Juan"
+    await pool.query(`
+      CREATE TABLE equipo_trabajo (
+        id SERIAL PRIMARY KEY,
+        nombre_completo VARCHAR(100) NOT NULL,
+        cedula VARCHAR(20) NOT NULL,
+        rol_equipo VARCHAR(50) NOT NULL, -- 'EMPLEADO', 'CONTRATISTA', 'LIDER_PROCESO'
+        coordinador_id INTEGER REFERENCES usuarios(id) ON DELETE CASCADE
+      );
+    `);
+
+    // 3. REFERIDOS (Votantes)
     await pool.query(`
       CREATE TABLE referidos (
         id SERIAL PRIMARY KEY,
@@ -47,14 +60,12 @@ app.get('/setup_master', async (req, res) => {
         celular VARCHAR(20),
         estado_voto BOOLEAN DEFAULT FALSE,
         observaciones TEXT,
-        responsable_id INTEGER REFERENCES usuarios(id),
-        -- Campos para "Usuarios dependientes" (Req 1.1)
-        tipo_vinculacion VARCHAR(50), -- 'DIRECTO', 'EMPLEADO', 'CONTRATISTA', 'LIDER_PROCESO'
-        nombre_vinculado VARCHAR(100) -- El nombre del empleado/contratista si aplica
+        responsable_id INTEGER REFERENCES usuarios(id) ON DELETE CASCADE, -- El Coordinador dueño
+        equipo_id INTEGER REFERENCES equipo_trabajo(id) -- Quién lo trajo realmente (El empleado)
       );
     `);
 
-    // 3. TABLA INTENTOS FALLIDOS (Req 2.3)
+    // 4. INTENTOS FALLIDOS (Auditoría)
     await pool.query(`
       CREATE TABLE intentos_fallidos (
         id SERIAL PRIMARY KEY,
@@ -62,20 +73,20 @@ app.get('/setup_master', async (req, res) => {
         usuario_intento_id INTEGER,
         fecha_hora TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         motivo VARCHAR(100) DEFAULT 'DUPLICIDAD',
-        datos_json TEXT -- Guardamos el intento completo como evidencia
+        datos_json TEXT
       );
     `);
 
-    // USUARIO ADMINISTRADOR POR DEFECTO
+    // ADMIN DEFAULT
     await pool.query(`
       INSERT INTO usuarios (nombres, apellidos, numero_documento, password, rol) 
-      VALUES ('Administrador', 'Sistema', 'admin', 'admin2026', 'ADMIN');
+      VALUES ('Admin', 'General', 'admin', 'admin2026', 'ADMIN');
     `);
 
-    res.send("✅ (JA12) SISTEMA MAESTRO INSTALADO: Tablas de Usuarios, Referidos y Auditoría de Duplicados listas.");
+    res.send("✅ (JA12) SISTEMA JERÁRQUICO INSTALADO: Admin -> Coordinador -> Equipo -> Votante.");
   } catch (err) {
     console.error(err);
-    res.send("❌ ERROR CRÍTICO: " + err.message);
+    res.send("❌ ERROR: " + err.message);
   }
 });
 
@@ -83,106 +94,119 @@ app.get('/setup_master', async (req, res) => {
 app.post('/api/login', async (req, res) => {
   const { usuario, password } = req.body;
   try {
-    const result = await pool.query('SELECT * FROM usuarios WHERE numero_documento = $1 AND password = $2 AND activo = true', [usuario, password]);
-    if (result.rows.length > 0) {
-      res.json({ exito: true, usuario: result.rows[0] });
-    } else {
-      res.status(401).json({ exito: false, mensaje: 'Credenciales inválidas o usuario inactivo.' });
-    }
+    const result = await pool.query('SELECT * FROM usuarios WHERE numero_documento = $1 AND password = $2', [usuario, password]);
+    if (result.rows.length > 0) res.json({ exito: true, usuario: result.rows[0] });
+    else res.status(401).json({ exito: false, mensaje: 'Credenciales inválidas' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// --- GESTIÓN DE USUARIOS (SOLO ADMIN) ---
+// --- GESTIÓN DE USUARIOS (CRUD COMPLETO) ---
 app.get('/api/usuarios', async (req, res) => {
-  try {
-    const result = await pool.query('SELECT * FROM usuarios ORDER BY id DESC');
-    res.json(result.rows);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  const result = await pool.query('SELECT * FROM usuarios ORDER BY id DESC');
+  res.json(result.rows);
 });
 
 app.post('/api/usuarios', async (req, res) => {
   const { nombres, apellidos, tipo_doc, num_doc, correo, celular, password, rol } = req.body;
   try {
-    await pool.query(`
+    const r = await pool.query(`
       INSERT INTO usuarios (nombres, apellidos, tipo_documento, numero_documento, correo, celular, password, rol)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id
     `, [nombres, apellidos, tipo_doc, num_doc, correo, celular, password, rol]);
-    res.json({ exito: true, mensaje: 'Usuario creado' });
-  } catch (err) { res.status(500).json({ exito: false, error: err.message }); }
+    res.json({ exito: true, id: r.rows[0].id });
+  } catch (err) { res.json({ exito: false, error: err.message }); }
 });
 
-app.put('/api/usuarios/:id/estado', async (req, res) => {
+app.put('/api/usuarios/:id', async (req, res) => { // EDITAR
   const { id } = req.params;
-  const { activo } = req.body;
+  const { nombres, apellidos, celular, password } = req.body;
   try {
-    await pool.query('UPDATE usuarios SET activo = $1 WHERE id = $2', [activo, id]);
+    await pool.query('UPDATE usuarios SET nombres=$1, apellidos=$2, celular=$3, password=$4 WHERE id=$5', 
+    [nombres, apellidos, celular, password, id]);
     res.json({ exito: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// --- REGISTRO DE REFERIDOS (CON LÓGICA DE DUPLICADOS REQ 2.3) ---
+app.delete('/api/usuarios/:id', async (req, res) => { // ELIMINAR
+  const { id } = req.params;
+  try {
+    await pool.query('DELETE FROM usuarios WHERE id = $1', [id]);
+    res.json({ exito: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- GESTIÓN DE EQUIPO (SUB-USUARIOS) ---
+app.post('/api/equipo', async (req, res) => {
+  const { nombre, cedula, rol, coordinador_id } = req.body;
+  try {
+    await pool.query('INSERT INTO equipo_trabajo (nombre_completo, cedula, rol_equipo, coordinador_id) VALUES ($1, $2, $3, $4)', 
+    [nombre, cedula, rol, coordinador_id]);
+    res.json({ exito: true });
+  } catch (err) { res.json({ exito: false, error: err.message }); }
+});
+
+app.get('/api/equipo/:coordinador_id', async (req, res) => {
+  const { coordinador_id } = req.params;
+  const result = await pool.query('SELECT * FROM equipo_trabajo WHERE coordinador_id = $1', [coordinador_id]);
+  res.json(result.rows);
+});
+
+app.delete('/api/equipo/:id', async (req, res) => {
+  await pool.query('DELETE FROM equipo_trabajo WHERE id = $1', [req.params.id]);
+  res.json({ exito: true });
+});
+
+// --- REGISTRO VOTANTES (Validación Duplicados) ---
 app.post('/api/crear_referido', async (req, res) => {
-  const { nombre, tipo_doc, num_doc, mesa, celular, observaciones, responsable_id, tipo_vinc, nombre_vinc } = req.body;
+  const { nombre, tipo_doc, num_doc, mesa, celular, observaciones, responsable_id, equipo_id } = req.body;
   
   try {
-    // 1. Verificar duplicidad antes de insertar
+    // Verificar duplicidad
     const check = await pool.query('SELECT * FROM referidos WHERE numero_documento = $1', [num_doc]);
     
     if (check.rows.length > 0) {
-      // 2. SI EXISTE: Registrar en tabla de fallidos (Req 2.3)
+      // Guardar Fallido
       const datosIntento = JSON.stringify(req.body);
-      await pool.query(`
-        INSERT INTO intentos_fallidos (numero_documento, usuario_intento_id, motivo, datos_json)
-        VALUES ($1, $2, 'DUPLICIDAD', $3)
-      `, [num_doc, responsable_id, datosIntento]);
-      
-      return res.json({ exito: false, mensaje: 'DUPLICADO: Esta cédula ya existe. El intento ha sido auditado.' });
+      await pool.query(`INSERT INTO intentos_fallidos (numero_documento, usuario_intento_id, motivo, datos_json) VALUES ($1, $2, 'DUPLICIDAD', $3)`, [num_doc, responsable_id, datosIntento]);
+      return res.json({ exito: false, mensaje: '⚠️ CÉDULA DUPLICADA. Intento registrado.' });
     }
 
-    // 3. SI NO EXISTE: Crear registro
+    // Guardar Exitoso
     await pool.query(`
-      INSERT INTO referidos (nombre_completo, tipo_documento, numero_documento, mesa_votacion, celular, observaciones, responsable_id, tipo_vinculacion, nombre_vinculado)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-    `, [nombre, tipo_doc, num_doc, mesa, celular, observaciones, responsable_id, tipo_vinc, nombre_vinc]);
+      INSERT INTO referidos (nombre_completo, tipo_documento, numero_documento, mesa_votacion, celular, observaciones, responsable_id, equipo_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `, [nombre, tipo_doc, num_doc, mesa, celular, observaciones, responsable_id, equipo_id || null]);
 
-    res.json({ exito: true, mensaje: 'Referido registrado exitosamente.' });
-
-  } catch (err) {
-    res.status(500).json({ exito: false, error: err.message });
-  }
+    res.json({ exito: true, mensaje: 'Votante registrado correctamente.' });
+  } catch (err) { res.status(500).json({ exito: false, error: err.message }); }
 });
 
-// --- REPORTES Y LISTADOS ---
-app.get('/api/referidos/todos', async (req, res) => {
-  // Para ADMIN: Ve todo + Nombre del Responsable
-  const result = await pool.query(`
-    SELECT r.*, u.nombres as nom_resp, u.apellidos as ape_resp 
-    FROM referidos r
-    JOIN usuarios u ON r.responsable_id = u.id
-    ORDER BY r.id DESC
-  `);
-  res.json(result.rows);
-});
-
+// --- REPORTES Y DÍA D ---
 app.get('/api/referidos/mis_registros/:id', async (req, res) => {
-  // Para COORDINADOR: Ve solo lo suyo
   const { id } = req.params;
-  const result = await pool.query('SELECT * FROM referidos WHERE responsable_id = $1 ORDER BY id DESC', [id]);
+  // Trae también el nombre del miembro del equipo que lo trajo
+  const result = await pool.query(`
+    SELECT r.*, e.nombre_completo as nombre_equipo, e.rol_equipo 
+    FROM referidos r 
+    LEFT JOIN equipo_trabajo e ON r.equipo_id = e.id 
+    WHERE r.responsable_id = $1 ORDER BY r.id DESC`, [id]);
   res.json(result.rows);
+});
+
+// MARCAR VOTO (DÍA D)
+app.put('/api/referidos/votar/:cedula', async (req, res) => {
+  const { cedula } = req.params;
+  await pool.query('UPDATE referidos SET estado_voto = true WHERE numero_documento = $1', [cedula]);
+  res.json({ exito: true });
 });
 
 app.get('/api/dashboard/stats', async (req, res) => {
   const total = await pool.query('SELECT COUNT(*) FROM referidos');
   const votos = await pool.query('SELECT COUNT(*) FROM referidos WHERE estado_voto = true');
-  const fallidos = await pool.query('SELECT COUNT(*) FROM intentos_fallidos');
-  res.json({ 
-    total: total.rows[0].count, 
-    votos: votos.rows[0].count,
-    fallidos: fallidos.rows[0].count 
-  });
+  res.json({ total: total.rows[0].count, votos: votos.rows[0].count });
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`(JA12) Servidor COMPLETO corriendo en puerto ${PORT}`);
+  console.log(`(JA12) Servidor v2 corriendo en puerto ${PORT}`);
 });
