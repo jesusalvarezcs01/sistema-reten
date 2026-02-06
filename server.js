@@ -13,7 +13,7 @@ const pool = new Pool({
 });
 
 // =================================================================
-// 1. INTERFAZ GRÁFICA BLINDADA PARA MÓVILES
+// 1. INTERFAZ GRÁFICA FINAL (SOLUCIÓN PANTALLA NEGRA)
 // =================================================================
 const APP_HTML = `
 <!DOCTYPE html>
@@ -35,10 +35,18 @@ const APP_HTML = `
             padding: 0; 
             font-family: 'Segoe UI', sans-serif; 
             background-color: var(--bg); 
-            overflow-x: hidden; 
+            overflow: hidden; /* IMPORTANTE: Bloquea scroll global */
+        }
+
+        /* --- CONTENEDOR DE LA APLICACIÓN (LOGIN/DASHBOARD) --- */
+        #app-container {
+            height: 100%;
+            overflow-y: auto; /* Scroll solo dentro de la app */
+            display: block;
+            transition: opacity 0.3s;
         }
         
-        /* HEADER FIJO */
+        /* HEADER */
         .navbar { 
             background: var(--primary); 
             color: white; 
@@ -46,32 +54,15 @@ const APP_HTML = `
             display: flex; 
             justify-content: space-between; 
             align-items: center; 
-            position: fixed; 
-            top: 0; left: 0; right: 0;
+            position: sticky; top: 0;
             z-index: 100; 
-            height: 60px;
-            box-sizing: border-box;
             box-shadow: 0 2px 10px rgba(0,0,0,0.2); 
         }
 
-        /* CONTENEDOR PRINCIPAL */
-        .main-content {
-            padding-top: 80px; 
-            padding-bottom: 20px;
-            min-height: 100vh;
-            overflow-y: auto; /* Permite scroll solo aquí */
-        }
+        /* PANTALLAS */
+        .screen { display: none !important; padding: 20px; padding-bottom: 80px; }
+        .screen.active { display: block !important; animation: fade 0.3s; }
         
-        /* PANTALLAS: OCULTAS POR DEFECTO */
-        .screen { 
-            display: none !important; 
-        }
-        .screen.active { 
-            display: block !important; 
-            animation: fade 0.3s; 
-        }
-        
-        /* TARJETAS */
         .card { 
             background: white; 
             border-radius: 12px; 
@@ -82,50 +73,63 @@ const APP_HTML = `
             max-width: 500px;
         }
 
-        /* --- ARREGLO DE CÁMARA (FULLSCREEN REAL) --- */
-        #screen-microblink {
+        /* --- CONTENEDOR DEL ESCÁNER (AISLADO) --- */
+        #scanner-overlay {
             position: fixed;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: black;
-            z-index: 99999; /* ENCIMA DE TODO */
-            display: none;
-        }
-        
-        #screen-microblink.active {
-            display: flex !important;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            background-color: #000;
+            z-index: 99999;
+            display: none; /* Oculto por defecto */
             flex-direction: column;
         }
 
+        #scanner-overlay.active {
+            display: flex !important;
+        }
+
+        /* COMPONENTE MICROBLINK */
         blinkid-in-browser {
-            width: 100%;
-            height: 100%; 
             flex: 1;
+            width: 100%;
+            height: 100%;
             display: block;
-            background: black; /* Evita parpadeo blanco */
         }
 
-        .btn-cancelar-scan {
-            position: absolute; 
-            top: 20px; left: 20px; 
-            z-index: 100000; 
-            background: rgba(255,255,255,0.9); 
-            color: black; 
-            border: none; 
-            padding: 10px 20px; 
-            border-radius: 30px;
-            font-weight: bold;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+        .scan-header {
+            position: absolute;
+            top: 0; left: 0; width: 100%;
+            padding: 15px;
+            background: rgba(0,0,0,0.5);
+            color: white;
+            z-index: 100000;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-sizing: border-box;
         }
 
-        /* ESTILOS BOTONES E INPUTS */
+        .scan-msg {
+            position: absolute;
+            bottom: 50px; left: 0; width: 100%;
+            text-align: center;
+            color: white;
+            z-index: 100000;
+            font-size: 1.2rem;
+            text-shadow: 0 1px 3px black;
+            pointer-events: none;
+        }
+
+        /* BOTONES */
         .btn { width: 100%; padding: 15px; border: none; border-radius: 8px; font-size: 1rem; font-weight: bold; cursor: pointer; margin-top: 10px; color: white; }
         .btn-primary { background: var(--primary); }
         .btn-green { background: var(--green); }
+        .btn-cancel { background: rgba(255,255,255,0.2); border: 1px solid white; color: white; padding: 5px 15px; border-radius: 20px; }
+        
         input, select { width: 100%; padding: 12px; margin-bottom: 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 1rem; box-sizing: border-box; }
 
-        /* MODAL RESULTADO */
+        /* MODAL */
         .result-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); display: none; align-items: center; justify-content: center; z-index: 200000; }
-        .modal-box { background: white; width: 85%; max-width: 400px; padding: 25px; border-radius: 15px; text-align: center; box-shadow: 0 0 20px rgba(255,255,255,0.2); }
+        .modal-box { background: white; width: 85%; max-width: 400px; padding: 25px; border-radius: 15px; text-align: center; }
 
         @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
     </style>
@@ -133,23 +137,23 @@ const APP_HTML = `
 <body>
 
     <script>
-        // TU LLAVE RENDER
+        // TU LLAVE EXACTA
         const LICENCIA_MICROBLINK = "sRwCABpzaXN0ZW1hLXJldGVuLm9ucmVuZGVyLmNvbQZsZXlKRGNtVmhkR1ZrVDI0aU9qRTNOekF6TkRBNE56UXhORE1zSWtOeVpXRjBaV1JHYjNJaU9pSmhOVFkyT1RNeFppMWpNbVEyTFRRMk1UY3RZalF3T0MwM09Ea3dNVFJrT0RFMVpqQWlmUT09Xx8uagCPC8T3b3Qa3oHIoGgMBAgsat/gyX1+szaTbpLSxKbea+5LfnKoV2qjcJo5KX2BZfrFUBxFP093X0F3XpjecVfoJx+llc9E4c5k8MBT59V+d+ll6wtjn1EnjA=="; 
     </script>
 
-    <div class="navbar" id="nav" style="display:none;">
-        <div id="user-display" style="font-weight:bold; margin-left:10px;">Usuario</div>
-        <div onclick="logout()" style="cursor:pointer; padding: 10px; margin-right:5px;"><i class="fas fa-sign-out-alt"></i> SALIR</div>
-    </div>
-
-    <div class="main-content">
+    <div id="app-container">
         
-        <div id="screen-login" class="screen active" style="padding-top: 50px;">
+        <div class="navbar" id="nav" style="display:none;">
+            <div id="user-display" style="font-weight:bold;">Usuario</div>
+            <div onclick="logout()" style="cursor:pointer; padding:10px;"><i class="fas fa-sign-out-alt"></i> SALIR</div>
+        </div>
+
+        <div id="screen-login" class="screen active" style="display:flex !important; flex-direction:column; justify-content:center; min-height:80vh;">
             <div class="card" style="text-align: center;">
                 <h2 style="color: var(--primary);">CONTROL ELECTORAL</h2>
-                <img src="https://cdn-icons-png.flaticon.com/512/2633/2633854.png" width="80" style="margin-bottom:10px;">
+                <p>El Retén 2026</p>
                 <br>
-                <input type="number" id="login-user" placeholder="Cédula Usuario" style="text-align:center;">
+                <input type="number" id="login-user" placeholder="Cédula" style="text-align:center;">
                 <input type="password" id="login-pass" placeholder="Contraseña" style="text-align:center;">
                 <button class="btn btn-primary" onclick="login()">INGRESAR</button>
                 <p id="error-msg" style="color:red; display:none; margin-top:10px;">Credenciales incorrectas</p>
@@ -159,49 +163,51 @@ const APP_HTML = `
         <div id="screen-dashboard" class="screen">
             <div class="card">
                 <h3>👋 Hola, <span id="dash-name">...</span></h3>
-                <p style="color:#666; font-size:0.9rem;">Seleccione una opción:</p>
-                <button class="btn btn-primary" onclick="irA('screen-registro')"><i class="fas fa-edit"></i> REGISTRO MANUAL</button>
+                <button class="btn btn-primary" onclick="irA('screen-registro')">📝 REGISTRO MANUAL</button>
                 <hr style="margin:20px 0; border-top:1px solid #eee;">
-                <button class="btn btn-green" onclick="iniciarMicroblink()"><i class="fas fa-camera"></i> ESCÁNER DÍA D</button>
+                <button class="btn btn-green" onclick="iniciarMicroblink()">📷 ESCÁNER DÍA D</button>
             </div>
-            
             <div class="card">
-                <h4 style="margin-top:0;">📊 Resumen Global</h4>
-                <div style="display:flex; justify-content:space-around; margin-top:15px;">
-                    <div style="text-align:center;">
-                        <span id="stat-total" style="font-size:2rem; font-weight:bold; color:#333;">0</span>
-                        <div style="font-size:0.8rem; color:#666;">REFERIDOS</div>
-                    </div>
-                    <div style="text-align:center;">
-                        <span id="stat-votos" style="font-size:2rem; font-weight:bold; color:var(--green);">0</span>
-                        <div style="font-size:0.8rem; color:var(--green);">YA VOTARON</div>
-                    </div>
+                <div style="display:flex; justify-content:space-around;">
+                    <div style="text-align:center;"><h2><span id="stat-total">0</span></h2><small>Total</small></div>
+                    <div style="text-align:center; color:green;"><h2><span id="stat-votos">0</span></h2><small>Votaron</small></div>
                 </div>
             </div>
         </div>
 
         <div id="screen-registro" class="screen">
             <div class="card">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
                     <h3>Nuevo Votante</h3>
-                    <button onclick="irA('screen-dashboard')" style="background:transparent; color:#666; border:1px solid #ccc; padding:5px 10px; border-radius:5px; width:auto;">X</button>
+                    <button onclick="irA('screen-dashboard')" style="width:auto; background:#ccc; color:#000; padding:5px 10px; border:none; border-radius:5px;">X</button>
                 </div>
-                <input type="text" id="reg-nombre" placeholder="Nombre Completo">
+                <input type="text" id="reg-nombre" placeholder="Nombre">
                 <input type="number" id="reg-cedula" placeholder="Cédula">
                 <input type="tel" id="reg-cel" placeholder="Celular">
                 <input type="text" id="reg-mesa" placeholder="Mesa">
-                <label style="font-size:0.9rem; color:#666;">Vinculado Por:</label>
+                <label>Vinculado Por:</label>
                 <select id="reg-equipo"><option>Cargando...</option></select>
-                <button class="btn btn-primary" onclick="guardarRegistro()">GUARDAR REGISTRO</button>
+                <button class="btn btn-primary" onclick="guardarRegistro()">GUARDAR</button>
             </div>
         </div>
+    </div>
 
-    </div> <div id="screen-microblink">
-        <button class="btn-cancelar-scan" onclick="detenerMicroblink()"><i class="fas fa-arrow-left"></i> VOLVER</button>
+    <div id="scanner-overlay">
+        <div class="scan-header">
+            <span>📷 Escaneando...</span>
+            <button class="btn-cancel" onclick="detenerMicroblink()">CANCELAR</button>
+        </div>
+        
+        <div id="scan-loading" style="color:white; text-align:center; margin-top:50%; display:none;">
+            <i class="fas fa-spinner fa-spin fa-2x"></i><br>Iniciando cámara...
+        </div>
+
         <blinkid-in-browser
             id="my-blinkid-component"
             engine-location="https://unpkg.com/@microblink/blinkid-in-browser-sdk@5.8.0/resources/"
         ></blinkid-in-browser>
+
+        <div class="scan-msg">Acerca la Cédula</div>
     </div>
 
     <div id="modal-result" class="result-modal" onclick="cerrarModal()">
@@ -214,10 +220,17 @@ const APP_HTML = `
 
         // --- MICROBLINK LOGIC ---
         function iniciarMicroblink() {
-            // Activar pantalla fullscreen negra
-            document.getElementById('screen-microblink').classList.add('active');
+            // 1. OCULTAR TODA LA APP (Login, Menu, Todo)
+            document.getElementById('app-container').style.display = 'none';
             
+            // 2. MOSTRAR SOLO EL ESCÁNER
+            const overlay = document.getElementById('scanner-overlay');
+            overlay.classList.add('active');
+            document.getElementById('scan-loading').style.display = 'block';
+
             const blinkId = document.querySelector('blinkid-in-browser');
+            
+            // Asegurarse de que el componente está limpio
             blinkId.licenseKey = LICENCIA_MICROBLINK;
             blinkId.recognizers = ['BlinkIdRecognizer']; 
 
@@ -228,35 +241,40 @@ const APP_HTML = `
                     const docNumber = results.documentNumber || results.mrz.documentNumber || results.mrz.primaryId;
                     if(docNumber) {
                         let cedulaLimpia = docNumber.replace(/</g, '').replace(/[a-zA-Z]/g, '');
-                        // DETENER MICROBLINK ANTES DE MOSTRAR RESULTADO PARA AHORRAR RECURSOS
-                        procesarVoto(cedulaLimpia);
+                        // DETENER MICROBLINK Y PROCESAR
                         detenerMicroblink(); 
+                        procesarVoto(cedulaLimpia);
                     }
                 }
             });
 
+            blinkId.addEventListener('fatalError', (ev) => {
+                alert("Error Fatal: La cámara no pudo iniciar. Revisa permisos.");
+                detenerMicroblink();
+            });
+
             blinkId.addEventListener('scanError', (ev) => {
                  if(ev.detail.code === "LicenseError") {
-                    alert("Error de Licencia: Verifica el dominio en Microblink Dashboard.");
+                    alert("Licencia rechazada. Verifica el dominio.");
                     detenerMicroblink();
                  }
             });
+            
+            // Ocultar loading cuando arranque
+            setTimeout(() => { document.getElementById('scan-loading').style.display = 'none'; }, 3000);
         }
 
         function detenerMicroblink() {
-            // Quitar clase active para ocultar capa negra
-            document.getElementById('screen-microblink').classList.remove('active');
-            irA('screen-dashboard');
+            // 1. OCULTAR ESCÁNER
+            document.getElementById('scanner-overlay').classList.remove('active');
+            // 2. MOSTRAR APP DE NUEVO
+            document.getElementById('app-container').style.display = 'block';
         }
 
         // --- APP LOGIC ---
         function irA(screenId) {
-            // Ocultar todas
             document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-            // Mostrar la deseada
             document.getElementById(screenId).classList.add('active');
-            
-            // Si es login, ocultar navbar
             if(screenId === 'screen-login') document.getElementById('nav').style.display = 'none';
             else document.getElementById('nav').style.display = 'flex';
         }
@@ -275,7 +293,7 @@ const APP_HTML = `
                 if(data.exito) {
                     currentUser = data.usuario;
                     irA('screen-dashboard');
-                    document.getElementById('dash-name').innerText = currentUser.nombres.split(' ')[0]; // Solo primer nombre
+                    document.getElementById('dash-name').innerText = currentUser.nombres.split(' ')[0];
                     cargarStats();
                     cargarEquipo();
                 } else { document.getElementById('error-msg').style.display = 'block'; }
@@ -356,7 +374,7 @@ const APP_HTML = `
 `;
 
 // =================================================================
-// 2. BACKEND (SERVIDOR Y BASE DE DATOS)
+// 2. BACKEND
 // =================================================================
 app.get('/', (req, res) => { res.send(APP_HTML); });
 
@@ -423,7 +441,6 @@ app.put('/api/referidos/votar/:cedula', async (req, res) => {
   res.json({ exito: true });
 });
 
-// OTROS ENDPOINTS DE GESTIÓN
 app.get('/api/usuarios', async (req, res) => { const r = await pool.query('SELECT * FROM usuarios ORDER BY id DESC'); res.json(r.rows); });
 app.post('/api/usuarios', async (req, res) => { const { nombres, apellidos, num_doc, password, rol } = req.body; await pool.query('INSERT INTO usuarios (nombres, apellidos, numero_documento, password, rol) VALUES ($1, $2, $3, $4, $5)', [nombres, apellidos, num_doc, password, rol]); res.json({ exito: true }); });
 app.delete('/api/usuarios/:id', async (req, res) => { await pool.query('DELETE FROM usuarios WHERE id = $1', [req.params.id]); res.json({ exito: true }); });
@@ -432,5 +449,5 @@ app.delete('/api/equipo/:id', async (req, res) => { await pool.query('DELETE FRO
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`(JA12) Servidor MICROBLINK LIVE ${PORT}`);
+  console.log(`(JA12) Servidor LIVE ${PORT}`);
 });
