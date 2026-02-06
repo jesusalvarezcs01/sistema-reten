@@ -2,7 +2,6 @@ const express = require('express');
 const { Pool } = require('pg');
 const cors = require('cors');
 const bodyParser = require('body-parser');
-const path = require('path');
 
 const app = express();
 app.use(cors());
@@ -14,7 +13,7 @@ const pool = new Pool({
 });
 
 // =================================================================
-// 1. INTERFAZ GRÁFICA (MICROBLINK INTEGRADO)
+// 1. INTERFAZ GRÁFICA CORREGIDA (CSS MÓVIL ROBUSTO)
 // =================================================================
 const APP_HTML = `
 <!DOCTYPE html>
@@ -25,117 +24,162 @@ const APP_HTML = `
     <title>Sistema Electoral El Retén</title>
     
     <script src="https://unpkg.com/@microblink/blinkid-in-browser-sdk@5.8.0/ui/dist/blinkid-in-browser/blinkid-in-browser.js"></script>
-    
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     
     <style>
         :root { --primary: #003366; --bg: #f4f7f6; --white: #ffffff; --green: #28a745; --red: #dc3545; }
-        body { font-family: 'Segoe UI', sans-serif; background-color: var(--bg); margin: 0; padding: 0; user-select: none; }
         
-        /* PANTALLAS */
-        .screen { display: none; padding: 20px; min-height: 100vh; box-sizing: border-box; }
-        .screen.active { display: block; animation: fade 0.3s; }
+        body { 
+            font-family: 'Segoe UI', sans-serif; 
+            background-color: var(--bg); 
+            margin: 0; 
+            padding: 0; 
+            user-select: none;
+            overflow-x: hidden; /* Evita desplazamiento lateral */
+        }
         
-        /* HEADER */
-        .navbar { background: var(--primary); color: white; padding: 15px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 999; box-shadow: 0 2px 10px rgba(0,0,0,0.2); }
-        .navbar h2 { margin: 0; font-size: 1.1rem; }
-        
-        /* UI COMPONENTES */
-        .card { background: white; border-radius: 12px; padding: 20px; margin-bottom: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
-        .btn { width: 100%; padding: 15px; border: none; border-radius: 8px; font-size: 1rem; font-weight: bold; cursor: pointer; margin-top: 10px; color: white; transition: 0.2s; }
-        .btn-primary { background: var(--primary); }
-        .btn-green { background: var(--green); }
-        .btn-outline { background: transparent; border: 2px solid var(--primary); color: var(--primary); }
-        
-        input, select { width: 100%; padding: 12px; margin-bottom: 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 1rem; box-sizing: border-box; }
-        
-        /* MICROBLINK UI */
-        blinkid-in-browser {
-            width: 100%;
-            height: 400px;
-            display: block;
-            z-index: 100;
+        /* HEADER FIJO */
+        .navbar { 
+            background: var(--primary); 
+            color: white; 
+            padding: 15px; 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            position: fixed; /* Fijo arriba */
+            top: 0; left: 0; right: 0;
+            z-index: 9999; 
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2); 
+            height: 60px;
+            box-sizing: border-box;
         }
 
-        /* RESULTADOS */
-        .result-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: none; align-items: center; justify-content: center; z-index: 2000; }
-        .modal-box { background: white; width: 85%; max-width: 400px; padding: 20px; border-radius: 15px; text-align: center; }
-        .big-icon { font-size: 4rem; margin-bottom: 10px; }
+        /* CONTENEDOR PRINCIPAL (Para no quedar debajo del header) */
+        .main-content {
+            padding-top: 80px; /* Espacio para el header */
+            padding-bottom: 20px;
+            min-height: 100vh;
+        }
         
+        /* PANTALLAS (IMPORTANTE: display none por defecto) */
+        .screen { 
+            display: none !important; 
+            width: 100%;
+        }
+        .screen.active { 
+            display: block !important; 
+            animation: fade 0.3s; 
+        }
+        
+        /* TARJETAS */
+        .card { 
+            background: white; 
+            border-radius: 12px; 
+            padding: 20px; 
+            margin: 0 auto 15px auto; 
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05); 
+            width: 90%; 
+            max-width: 500px;
+        }
+
+        /* ESCÁNER MICROBLINK (AJUSTE MÓVIL) */
+        #screen-microblink {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: black;
+            z-index: 10000; /* Por encima de todo */
+            padding: 0;
+        }
+
+        blinkid-in-browser {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        .btn-cancelar-scan {
+            position: absolute; 
+            top: 20px; left: 20px; 
+            z-index: 10001; 
+            background: white; 
+            color: black; 
+            border: none; 
+            padding: 10px 20px; 
+            border-radius: 20px;
+            font-weight: bold;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+        }
+
+        /* ESTILOS GENERALES */
+        .btn { width: 100%; padding: 15px; border: none; border-radius: 8px; font-size: 1rem; font-weight: bold; cursor: pointer; margin-top: 10px; color: white; }
+        .btn-primary { background: var(--primary); }
+        .btn-green { background: var(--green); }
+        input, select { width: 100%; padding: 12px; margin-bottom: 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 1rem; box-sizing: border-box; }
+
+        /* MODAL */
+        .result-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: none; align-items: center; justify-content: center; z-index: 20000; }
+        .modal-box { background: white; width: 85%; max-width: 400px; padding: 20px; border-radius: 15px; text-align: center; }
+
         @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
     </style>
 </head>
 <body>
 
     <script>
-        // ===> LLAVE CONFIGURADA CORRECTAMENTE <===
+        // TU LLAVE DE RENDER
         const LICENCIA_MICROBLINK = "sRwCABpzaXN0ZW1hLXJldGVuLm9ucmVuZGVyLmNvbQZsZXlKRGNtVmhkR1ZrVDI0aU9qRTNOekF6TkRBNE56UXhORE1zSWtOeVpXRjBaV1JHYjNJaU9pSmhOVFkyT1RNeFppMWpNbVEyTFRRMk1UY3RZalF3T0MwM09Ea3dNVFJrT0RFMVpqQWlmUT09Xx8uagCPC8T3b3Qa3oHIoGgMBAgsat/gyX1+szaTbpLSxKbea+5LfnKoV2qjcJo5KX2BZfrFUBxFP093X0F3XpjecVfoJx+llc9E4c5k8MBT59V+d+ll6wtjn1EnjA=="; 
     </script>
 
     <div class="navbar" id="nav" style="display:none;">
-        <div id="user-display">Usuario</div>
-        <div onclick="logout()" style="cursor:pointer;"><i class="fas fa-sign-out-alt"></i></div>
+        <div id="user-display" style="font-weight:bold;">Usuario</div>
+        <div onclick="logout()" style="cursor:pointer; padding: 10px;"><i class="fas fa-sign-out-alt"></i> SALIR</div>
     </div>
 
-    <div id="screen-login" class="screen active" style="background: var(--primary); display: flex; align-items: center; justify-content: center;">
-        <div class="card" style="width: 100%; max-width: 350px; text-align: center;">
-            <h2 style="color: var(--primary); margin-bottom: 5px;">EL RETÉN 2026</h2>
-            <p style="color: #666;">Acceso Autorizado</p>
-            <br>
-            <input type="number" id="login-user" placeholder="Usuario (Cédula)">
-            <input type="password" id="login-pass" placeholder="Contraseña">
-            <button class="btn btn-primary" onclick="login()">INGRESAR</button>
-            <p id="error-msg" style="color:red; display:none; margin-top:10px;">Credenciales incorrectas</p>
-        </div>
-    </div>
-
-    <div id="screen-dashboard" class="screen">
-        <div class="card">
-            <h3>👋 Hola, <span id="dash-name">...</span></h3>
-            
-            <button class="btn btn-primary" onclick="irA('screen-registro')">
-                <i class="fas fa-user-plus"></i> REGISTRO MANUAL
-            </button>
-            
-            <hr style="margin: 20px 0; border: 0; border-top: 1px solid #eee;">
-            
-            <button class="btn btn-green" onclick="iniciarMicroblink()">
-                <i class="fas fa-id-card"></i> ESCÁNER PRO (DÍA D)
-            </button>
-
-            <div id="admin-panel-btn" style="display:none;">
-                <button class="btn btn-outline" onclick="alert('Panel Administrativo: Usa la PC para ver tablas complejas')">
-                    <i class="fas fa-users-cog"></i> GESTIÓN USUARIOS
-                </button>
-            </div>
-        </div>
-
-        <div class="card">
-            <h4>📊 Resumen</h4>
-            <div style="display: flex; justify-content: space-between;">
-                <div style="text-align: center;"><b style="font-size: 1.5rem;" id="stat-total">0</b><br><small>Total</small></div>
-                <div style="text-align: center; color: var(--green);"><b style="font-size: 1.5rem;" id="stat-votos">0</b><br><small>Votaron</small></div>
-            </div>
-        </div>
-    </div>
-
-    <div id="screen-registro" class="screen">
-        <button class="btn btn-outline" style="width:auto; margin-bottom:10px;" onclick="irA('screen-dashboard')">⬅ Volver</button>
-        <div class="card">
-            <h3>📝 Nuevo Votante</h3>
-            <input type="text" id="reg-nombre" placeholder="Nombre Completo">
-            <input type="number" id="reg-cedula" placeholder="Cédula">
-            <input type="tel" id="reg-cel" placeholder="Celular">
-            <input type="text" id="reg-mesa" placeholder="Mesa">
-            <label><b>Vinculado Por:</b></label>
-            <select id="reg-equipo"><option value="">Cargando...</option></select>
-            <button class="btn btn-primary" onclick="guardarRegistro()">GUARDAR</button>
-        </div>
-    </div>
-
-    <div id="screen-microblink" class="screen" style="background:black; padding:0;">
-        <button style="position:absolute; top:10px; left:10px; z-index:200; background:white; color:black; border:none; padding:10px; border-radius:5px;" onclick="detenerMicroblink()">⬅ CANCELAR</button>
+    <div class="main-content">
         
+        <div id="screen-login" class="screen active" style="padding-top: 50px;">
+            <div class="card" style="text-align: center;">
+                <h2 style="color: var(--primary);">CONTROL ELECTORAL</h2>
+                <p>El Retén 2026</p>
+                <br>
+                <input type="number" id="login-user" placeholder="Cédula Usuario">
+                <input type="password" id="login-pass" placeholder="Contraseña">
+                <button class="btn btn-primary" onclick="login()">INGRESAR</button>
+                <p id="error-msg" style="color:red; display:none; margin-top:10px;">Credenciales incorrectas</p>
+            </div>
+        </div>
+
+        <div id="screen-dashboard" class="screen">
+            <div class="card">
+                <h3>👋 Hola, <span id="dash-name">...</span></h3>
+                <button class="btn btn-primary" onclick="irA('screen-registro')">📝 REGISTRO MANUAL</button>
+                <hr style="margin:20px 0; border-top:1px solid #eee;">
+                <button class="btn btn-green" onclick="iniciarMicroblink()">📷 ESCÁNER DÍA D</button>
+            </div>
+            <div class="card">
+                <div style="display:flex; justify-content:space-around;">
+                    <div style="text-align:center;"><h2><span id="stat-total">0</span></h2><small>Total</small></div>
+                    <div style="text-align:center; color:green;"><h2><span id="stat-votos">0</span></h2><small>Votaron</small></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="screen-registro" class="screen">
+            <button class="btn" style="background:#ccc; color:#333; width:auto; margin-bottom:10px;" onclick="irA('screen-dashboard')">⬅ Volver</button>
+            <div class="card">
+                <h3>Nuevo Votante</h3>
+                <input type="text" id="reg-nombre" placeholder="Nombre">
+                <input type="number" id="reg-cedula" placeholder="Cédula">
+                <input type="tel" id="reg-cel" placeholder="Celular">
+                <input type="text" id="reg-mesa" placeholder="Mesa">
+                <label><b>Vinculado Por:</b></label>
+                <select id="reg-equipo"><option>Cargando...</option></select>
+                <button class="btn btn-primary" onclick="guardarRegistro()">GUARDAR</button>
+            </div>
+        </div>
+
+    </div> <div id="screen-microblink" class="screen">
+        <button class="btn-cancelar-scan" onclick="detenerMicroblink()">⬅ CANCELAR / VOLVER</button>
         <blinkid-in-browser
             id="my-blinkid-component"
             engine-location="https://unpkg.com/@microblink/blinkid-in-browser-sdk@5.8.0/resources/"
@@ -157,34 +201,26 @@ const APP_HTML = `
             const blinkId = document.querySelector('blinkid-in-browser');
             blinkId.licenseKey = LICENCIA_MICROBLINK;
             blinkId.recognizers = ['BlinkIdRecognizer']; 
-            
-            // Evento cuando detecta algo
+
+            // EVENTOS
             blinkId.addEventListener('scanSuccess', (ev) => {
                 const results = ev.detail.recognizers.BlinkIdRecognizer;
-                
                 if (results.resultState === 'Valid') {
-                    // Extraer número de documento (Intenta varios campos por si acaso)
                     const docNumber = results.documentNumber || results.mrz.documentNumber || results.mrz.primaryId;
-                    
                     if(docNumber) {
-                        // Limpiar caracteres raros si lee MRZ
                         let cedulaLimpia = docNumber.replace(/</g, '').replace(/[a-zA-Z]/g, '');
-                        console.log("Cédula leída:", cedulaLimpia);
+                        // DETENER MICROBLINK ANTES DE MOSTRAR RESULTADO PARA AHORRAR RECURSOS
                         procesarVoto(cedulaLimpia);
-                        // Detener temporalmente para mostrar resultado
                         detenerMicroblink(); 
-                    } else {
-                        alert("No se pudo leer el número. Intenta de nuevo.");
                     }
                 }
             });
-            
+
             blinkId.addEventListener('scanError', (ev) => {
-                console.error("Error Microblink:", ev.detail);
-                if(ev.detail.code === "LicenseError") {
-                    alert("⚠️ ERROR DE LICENCIA: Verifica que el dominio sea correcto.");
+                 if(ev.detail.code === "LicenseError") {
+                    alert("Error de Licencia: Verifica el dominio.");
                     detenerMicroblink();
-                }
+                 }
             });
         }
 
@@ -194,8 +230,14 @@ const APP_HTML = `
 
         // --- APP LOGIC ---
         function irA(screenId) {
+            // Ocultar todas
             document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            // Mostrar la deseada
             document.getElementById(screenId).classList.add('active');
+            
+            // Si es login, ocultar navbar
+            if(screenId === 'screen-login') document.getElementById('nav').style.display = 'none';
+            else document.getElementById('nav').style.display = 'flex';
         }
 
         function logout() { localStorage.removeItem('reten_user'); location.reload(); }
@@ -211,13 +253,10 @@ const APP_HTML = `
                 const data = await res.json();
                 if(data.exito) {
                     currentUser = data.usuario;
-                    document.getElementById('nav').style.display = 'flex';
-                    document.getElementById('user-display').innerText = currentUser.nombres;
+                    irA('screen-dashboard');
                     document.getElementById('dash-name').innerText = currentUser.nombres;
-                    if(currentUser.rol === 'ADMIN') document.getElementById('admin-panel-btn').style.display = 'block';
                     cargarStats();
                     cargarEquipo();
-                    irA('screen-dashboard');
                 } else { document.getElementById('error-msg').style.display = 'block'; }
             } catch(e) { alert("Error conexión"); }
         }
@@ -256,22 +295,18 @@ const APP_HTML = `
         }
 
         async function procesarVoto(cedula) {
-            mostrarModal('loading', 'Consultando...', 'Verificando en base de datos');
+            mostrarModal('loading', 'Consultando...', 'Verificando ' + cedula);
             try {
                 const resCheck = await fetch(\`\${API}/api/verificar/\${cedula}\`);
                 const dataCheck = await resCheck.json();
                 
                 if(dataCheck.estado === 'NUEVO') {
-                    mostrarModal('error', 'NO REGISTRADO', \`La cédula <b>\${cedula}</b> no existe en el sistema.\`);
+                    mostrarModal('error', 'NO REGISTRADO', \`Cédula <b>\${cedula}</b> no encontrada.\`);
                 } else if (dataCheck.estado === 'YA_VOTO') {
-                    mostrarModal('warning', 'YA VOTÓ', \`Esta persona ya sufragó.<br>Líder: \${dataCheck.datos.nombre_coordinador}\`);
+                    mostrarModal('warning', 'YA VOTÓ', \`Ya sufragó.<br>Líder: \${dataCheck.datos.nombre_coordinador}\`);
                 } else {
                     await fetch(\`\${API}/api/referidos/votar/\${cedula}\`, { method: 'PUT' });
-                    mostrarModal('success', '✅ VOTO REGISTRADO', \`
-                        <b>\${dataCheck.datos.nombre_completo}</b><br>
-                        Mesa: \${dataCheck.datos.mesa_votacion}<br>
-                        Líder: \${dataCheck.datos.nombre_coordinador}
-                    \`);
+                    mostrarModal('success', '✅ VOTO EXITOSO', \`\${dataCheck.datos.nombre_completo}<br>Mesa: \${dataCheck.datos.mesa_votacion}\`);
                     cargarStats();
                 }
             } catch(e) { mostrarModal('error', 'Error', 'Fallo de red'); }
@@ -285,9 +320,9 @@ const APP_HTML = `
             if(tipo === 'warning') { icon = 'fa-exclamation-triangle'; color = '#ffc107'; }
             
             box.innerHTML = \`
-                <i class="fas \${icon} big-icon" style="color:\${color}"></i>
-                <h2 style="color:\${color}">\${titulo}</h2>
-                <p style="font-size:1.2rem">\${mensaje}</p>
+                <i class="fas \${icon}" style="font-size:3rem; color:\${color}; margin-bottom:10px;"></i>
+                <h2 style="color:\${color}; margin:5px 0;">\${titulo}</h2>
+                <p style="font-size:1.1rem; color:#333;">\${mensaje}</p>
                 \${tipo !== 'loading' ? '<button class="btn btn-primary" onclick="cerrarModal()">ACEPTAR</button>' : ''}
             \`;
             document.getElementById('modal-result').style.display = 'flex';
