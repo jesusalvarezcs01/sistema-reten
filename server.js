@@ -2,7 +2,8 @@ const express = require('express');
 const { Pool } = require('pg');
 const cors = require('cors');
 const bodyParser = require('body-parser');
-const https = require('https'); // Usamos nativo para no instalar nada
+const https = require('https'); 
+const path = require('path');
 
 const app = express();
 app.use(cors());
@@ -14,29 +15,40 @@ const pool = new Pool({
 });
 
 // =================================================================
-// 1. PROXY ESPEJO (LA CLAVE DEL ÉXITO)
+// 1. PROXY INTELIGENTE (SOLUCIÓN AL CONGELAMIENTO)
 // =================================================================
-// Esto engaña al navegador para que crea que los archivos de Microblink son locales.
-// Soluciona el error "Failed to execute importScripts".
 app.get('/sdk-resources/:filename', (req, res) => {
     const filename = req.params.filename;
-    // Apuntamos a la versión 5.8.0 que es muy estable
+    // Usamos la versión 5.8.0 consistente
     const remoteUrl = `https://cdn.jsdelivr.net/npm/@microblink/blinkid-in-browser-sdk@5.8.0/resources/${filename}`;
 
     https.get(remoteUrl, (remoteRes) => {
-        // Pasamos los encabezados correctos (importante para archivos .wasm)
-        res.set('Content-Type', remoteRes.headers['content-type']);
-        res.set('Cache-Control', 'public, max-age=31536000'); // Cachear para que sea rápido la próxima
+        // --- AQUÍ ESTÁ LA CORRECCIÓN CRÍTICA ---
+        // Forzamos el tipo de archivo correcto para que el celular no se bloquee
+        if (filename.endsWith('.wasm')) {
+            res.set('Content-Type', 'application/wasm');
+        } else if (filename.endsWith('.js')) {
+            res.set('Content-Type', 'application/javascript');
+        } else if (filename.endsWith('.json')) {
+            res.set('Content-Type', 'application/json');
+        } else {
+            // Fallback al que traiga el servidor
+            res.set('Content-Type', remoteRes.headers['content-type']);
+        }
         
-        // Conectamos el tubo (pipe) directo
+        // Permisos para que el navegador confíe
+        res.set('Access-Control-Allow-Origin', '*');
+        
+        // Enviamos el archivo
         remoteRes.pipe(res);
     }).on('error', (e) => {
-        res.status(500).send("Error Proxy: " + e.message);
+        console.error("Proxy Error:", e);
+        res.status(500).send("Error");
     });
 });
 
 // =================================================================
-// 2. INTERFAZ GRÁFICA (V19)
+// 2. INTERFAZ GRÁFICA (V20)
 // =================================================================
 const APP_HTML = `
 <!DOCTYPE html>
@@ -53,45 +65,27 @@ const APP_HTML = `
         * { box-sizing: border-box; }
         body, html { height: 100%; margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; background: #000; overflow: hidden; }
 
-        /* CAPAS DE LA APLICACIÓN */
-        #layer-app { 
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
-            background: #f4f7f6; z-index: 10; overflow-y: auto; 
-        }
-        
-        #layer-scanner { 
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
-            background: #000; z-index: 9999; 
-            display: none; /* Oculto por defecto */
-            flex-direction: column;
-        }
+        /* CAPAS */
+        #layer-app { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #f4f7f6; z-index: 10; overflow-y: auto; }
+        #layer-scanner { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 9999; display: none; flex-direction: column; }
 
-        /* COMPONENTES UI */
+        /* UI */
         .card { background: white; width: 90%; max-width: 400px; padding: 25px; border-radius: 15px; margin: 20px auto; text-align: center; box-shadow: 0 5px 20px rgba(0,0,0,0.1); }
         .btn { width: 100%; padding: 15px; border: none; border-radius: 10px; font-weight: bold; font-size: 16px; margin-top: 15px; color: white; cursor: pointer; }
-        .btn-green { background: #28a745; box-shadow: 0 4px 0 #218838; }
-        .btn-blue { background: #003366; box-shadow: 0 4px 0 #002244; }
-        input { width: 100%; padding: 15px; margin-bottom: 10px; text-align: center; border: 1px solid #ccc; border-radius: 8px; font-size: 16px; background: #f9f9f9; }
+        .btn-green { background: #28a745; }
+        .btn-blue { background: #003366; }
+        input { width: 100%; padding: 15px; margin-bottom: 10px; text-align: center; border: 1px solid #ccc; border-radius: 8px; font-size: 16px; }
 
-        /* HEADER & NAVBAR */
-        .navbar { background: #003366; color: white; padding: 15px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 10px rgba(0,0,0,0.2); }
+        /* CAMARA */
+        blinkid-in-browser { width: 100%; height: 100%; display: block; background: black; }
         
-        /* CONTROLES CAMARA */
-        .scan-controls { 
-            position: absolute; top: 0; left: 0; width: 100%; padding: 20px; 
-            display: flex; justify-content: space-between; z-index: 10000; 
-            background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent); 
+        .scan-controls { position: absolute; top: 0; left: 0; width: 100%; padding: 20px; display: flex; justify-content: space-between; z-index: 10000; background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent); }
+        
+        /* LOADER CON ERROR HANDLING VISUAL */
+        #loader {
+            position: absolute; top: 40%; width: 100%; text-align: center; color: white; z-index: 9000;
         }
-        .scan-msg {
-            position: absolute; bottom: 50px; width: 100%; text-align: center; color: white;
-            z-index: 10000; font-weight: bold; text-shadow: 0 2px 4px black; font-size: 1.2rem;
-            pointer-events: none;
-        }
-
-        /* MICROBLINK COMPONENT */
-        blinkid-in-browser { 
-            width: 100%; height: 100%; display: block; background: black; 
-        }
+        #loader-error { display: none; color: #ff6b6b; margin-top: 10px; }
 
         /* MODAL */
         #modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 20000; display: none; align-items: center; justify-content: center; }
@@ -105,75 +99,61 @@ const APP_HTML = `
     </script>
 
     <div id="layer-app">
-        
         <div id="view-login" style="height: 100vh; display: flex; align-items: center; justify-content: center; background: #003366;">
             <div class="card">
-                <h2 style="color:#003366; margin-bottom: 5px;">CONTROL ELECTORAL</h2>
-                <p style="color:#666; margin-bottom: 20px;">El Retén 2026</p>
-                <input type="number" id="l-user" placeholder="Cédula Usuario">
+                <h2 style="color:#003366;">CONTROL ELECTORAL</h2>
+                <input type="number" id="l-user" placeholder="Cédula">
                 <input type="password" id="l-pass" placeholder="Contraseña">
-                <button class="btn btn-green" onclick="doLogin()">INGRESAR AL SISTEMA</button>
+                <button class="btn btn-green" onclick="doLogin()">INGRESAR</button>
             </div>
         </div>
 
         <div id="view-dashboard" style="display:none;">
-            <div class="navbar">
+            <div style="background:#003366; color:white; padding:15px; display:flex; justify-content:space-between; align-items:center; position:sticky; top:0; z-index:100;">
                 <div>👋 <b id="u-name">...</b></div>
-                <div onclick="logout()" style="cursor:pointer; font-size: 0.9rem; opacity: 0.9;"><i class="fas fa-sign-out-alt"></i> SALIR</div>
+                <div onclick="logout()" style="cursor:pointer;"><i class="fas fa-sign-out-alt"></i> SALIR</div>
             </div>
-            
             <div style="padding: 20px;">
                 <div class="card" onclick="irRegistro()">
-                    <i class="fas fa-pen-square fa-3x" style="color:#003366; margin-bottom:10px;"></i>
-                    <h3>REGISTRO MANUAL</h3>
-                    <p style="color:#888;">Ingreso por teclado</p>
+                    <h3>REGISTRO MANUAL</h3><p>Teclado</p>
                 </div>
-
-                <div class="card" onclick="activarCamara()" style="border: 2px solid #28a745; transform: scale(1.02);">
-                    <i class="fas fa-id-card fa-3x" style="color:#28a745; margin-bottom:10px;"></i>
+                <div class="card" onclick="activarCamara()" style="border: 2px solid #28a745;">
                     <h3 style="color:#28a745;">ESCANEAR CÉDULA</h3>
-                    <p style="color:#555;">Lee <b>PDF417</b> (Atrás) y <b>MRZ</b></p>
-                    <button class="btn btn-green" style="margin-top:5px;">INICIAR CÁMARA</button>
+                    <p>PDF417 y Digital</p>
+                    <button class="btn btn-green">INICIAR</button>
                 </div>
-
-                <div class="card" style="background: #f8f9fa;">
+                <div class="card">
                     <h3>ESTADÍSTICAS</h3>
-                    <div style="display:flex; justify-content:space-around; margin-top:15px;">
-                        <div><h2 id="s-total">0</h2><small>Total</small></div>
-                        <div style="color:#28a745;"><h2 id="s-votos">0</h2><small>Votaron</small></div>
-                    </div>
+                    <h2><span id="s-votos" style="color:green;">0</span> / <span id="s-total">0</span></h2>
                 </div>
             </div>
         </div>
 
         <div id="view-registro" style="display:none; padding-top:20px;">
             <div class="card">
-                <h3>Nuevo Votante</h3>
-                <input type="text" id="r-nom" placeholder="Nombre Completo">
-                <input type="number" id="r-ced" placeholder="Cédula">
-                <button class="btn btn-blue" onclick="guardar()">GUARDAR REGISTRO</button>
-                <button class="btn btn-red" style="background:#dc3545;" onclick="verDashboard()">CANCELAR</button>
+                <h3>Nuevo</h3>
+                <input type="text" id="r-nom" placeholder="Nombre"><input type="number" id="r-ced" placeholder="Cédula">
+                <button class="btn btn-blue" onclick="guardar()">GUARDAR</button><button class="btn btn-red" onclick="verDashboard()">CANCELAR</button>
             </div>
         </div>
     </div>
 
     <div id="layer-scanner">
         <div class="scan-controls">
-            <span style="color:white; font-weight:bold; text-shadow:0 1px 2px black;">ESCANEANDO...</span>
+            <span style="color:white; font-weight:bold;">ESCANEANDO...</span>
             <button onclick="cerrarCamara()" style="background:rgba(255,255,255,0.2); color:white; border:1px solid white; padding:5px 15px; border-radius:20px;">CERRAR</button>
         </div>
         
-        <div id="loader" style="color:white; text-align:center; position:absolute; top:45%; width:100%; z-index:9000;">
+        <div id="loader">
             <i class="fas fa-circle-notch fa-spin fa-3x"></i><br><br>
-            CARGANDO MOTOR IA...<br>
-            <small>(Esto puede tardar un poco la primera vez)</small>
+            <span id="loader-msg">CARGANDO MOTOR IA...</span>
+            <div id="loader-error">
+                Demora mucho...<br>
+                <button class="btn btn-blue" onclick="location.reload()">RECARGAR PÁGINA</button>
+            </div>
         </div>
 
         <blinkid-in-browser id="scanner-el"></blinkid-in-browser>
-        
-        <div class="scan-msg">
-            Muestra la parte de ATRÁS de la cédula
-        </div>
     </div>
 
     <div id="modal-overlay"><div id="modal-box"></div></div>
@@ -182,7 +162,6 @@ const APP_HTML = `
         const API = window.location.origin;
         let currentUser = null;
 
-        // --- GESTIÓN DE PANTALLAS ---
         function verDashboard() {
             document.getElementById('view-login').style.display = 'none';
             document.getElementById('view-registro').style.display = 'none';
@@ -194,55 +173,40 @@ const APP_HTML = `
             document.getElementById('view-registro').style.display = 'block';
         }
 
-        // --- CÁMARA MICROBLINK (CONFIGURACIÓN MAESTRA) ---
+        // --- CÁMARA ---
         async function activarCamara() {
-            // 1. Ocultar la App para evitar conflictos de renderizado
             document.getElementById('layer-app').style.display = 'none';
             document.getElementById('layer-scanner').style.display = 'flex';
             document.getElementById('loader').style.display = 'block';
+            
+            // Timeout de seguridad visual
+            setTimeout(() => {
+                if(document.getElementById('loader').style.display !== 'none') {
+                    document.getElementById('loader-error').style.display = 'block';
+                    document.getElementById('loader-msg').innerText = "Problema de conexión";
+                }
+            }, 15000);
 
             try {
                 const el = document.getElementById('scanner-el');
                 
-                // Si ya se inicializó antes, no recargar todo
-                if (el.blinkId) {
+                if (el.blinkId) { 
                     document.getElementById('loader').style.display = 'none';
                     return; 
                 }
 
-                // CONFIGURACIÓN DE RECURSOS (EL SECRETO)
                 el.licenseKey = LICENCIA;
-                
-                // Aquí usamos nuestro PROXY LOCAL para que el celular no bloquee los archivos
+                // APUNTAMOS AL PROXY LOCAL QUE ARREGLAMOS ARRIBA
                 el.engineLocation = window.location.origin + "/sdk-resources/"; 
-                
-                // Reconocedor Universal (PDF417 + MRZ)
                 el.recognizers = ['BlinkIdRecognizer']; 
-                
-                // Configuraciones de UI para que ocupe todo y sea rápido
-                el.uiSettings = { 
-                    enableFullScreen: true, // Dejamos que Microblink maneje el fullscreen
-                    showOverlay: true,
-                    timeout: 25000 // Dar tiempo si el internet es lento
-                };
+                el.uiSettings = { enableFullScreen: true, showOverlay: true };
 
-                // EVENTOS
                 el.addEventListener('scanSuccess', (ev) => {
-                    const results = ev.detail.recognizers.BlinkIdRecognizer;
-                    
-                    if (results.resultState === 'Valid') {
-                        // Extraer Número de Documento (Prioridad MRZ, luego Codigo Barras)
-                        const docNumber = 
-                            results.documentNumber || 
-                            results.mrz.documentNumber || 
-                            results.mrz.primaryId ||
-                            results.barcode.data; // A veces viene aquí en PDF417 raw
-
-                        if(docNumber) {
-                            // Limpiamos el numero (solo digitos)
-                            let cedula = docNumber.replace(/[^0-9]/g, '');
-                            
-                            // Validar longitud razonable para Colombia (6 a 10 digitos)
+                    const r = ev.detail.recognizers.BlinkIdRecognizer;
+                    if (r.resultState === 'Valid') {
+                        const doc = r.documentNumber || r.mrz.documentNumber || r.barcode.data;
+                        if(doc) {
+                            let cedula = doc.replace(/[^0-9]/g, '');
                             if (cedula.length >= 6) {
                                 cerrarCamara();
                                 verificarCedula(cedula);
@@ -256,13 +220,12 @@ const APP_HTML = `
                     cerrarCamara();
                 });
 
-                // Cuando el motor esté listo
                 el.addEventListener('ready', () => {
                     document.getElementById('loader').style.display = 'none';
                 });
 
             } catch(e) {
-                alert("Error al iniciar cámara: " + e.message);
+                alert("Error JS: " + e.message);
                 cerrarCamara();
             }
         }
@@ -270,51 +233,40 @@ const APP_HTML = `
         function cerrarCamara() {
             document.getElementById('layer-scanner').style.display = 'none';
             document.getElementById('layer-app').style.display = 'block';
-            // Recargar para limpiar memoria es vital en móviles con cámaras pesadas
-            setTimeout(() => location.reload(), 300);
+            setTimeout(() => location.reload(), 200);
         }
 
-        // --- LÓGICA DE NEGOCIO ---
+        // --- NEGOCIO ---
         async function verificarCedula(cedula) {
-            const ol = document.getElementById('modal-overlay');
             const box = document.getElementById('modal-box');
-            ol.style.display = 'flex';
-            box.innerHTML = '<h3><i class="fas fa-spinner fa-spin"></i> Verificando '+cedula+'...</h3>';
+            document.getElementById('modal-overlay').style.display = 'flex';
+            box.innerHTML = '<h3>Consultando '+cedula+'...</h3>';
 
             try {
                 const res = await fetch(API+'/api/verificar/'+cedula);
                 const d = await res.json();
 
                 if(d.estado === 'NUEVO') {
-                    box.innerHTML = '<i class="fas fa-times-circle" style="color:red; font-size:3rem;"></i><h3 style="color:red">NO REGISTRADO</h3><p>La cédula '+cedula+' no está en base de datos.</p><button class="btn btn-blue" onclick="location.reload()">ACEPTAR</button>';
+                    box.innerHTML = '<h1 style="color:red">X</h1><h3>NO REGISTRADO</h3><button class="btn btn-blue" onclick="location.reload()">OK</button>';
                 } else if(d.estado === 'YA_VOTO') {
-                    box.innerHTML = '<i class="fas fa-exclamation-triangle" style="color:orange; font-size:3rem;"></i><h3 style="color:orange">YA VOTÓ</h3><p>Líder: '+d.datos.nombre_coordinador+'</p><button class="btn btn-blue" onclick="location.reload()">ACEPTAR</button>';
+                    box.innerHTML = '<h1 style="color:orange">⚠️</h1><h3>YA VOTÓ</h3><p>'+d.datos.nombre_coordinador+'</p><button class="btn btn-blue" onclick="location.reload()">OK</button>';
                 } else {
                     await fetch(API+'/api/referidos/votar/'+cedula, {method:'PUT'});
-                    box.innerHTML = '<i class="fas fa-check-circle" style="color:green; font-size:3rem;"></i><h3 style="color:green">VOTO EXITOSO</h3><p><b>'+d.datos.nombre_completo+'</b><br>Mesa: '+d.datos.mesa_votacion+'</p><button class="btn btn-blue" onclick="location.reload()">CONTINUAR</button>';
+                    box.innerHTML = '<h1 style="color:green">✅</h1><h3>EXITOSO</h3><p>'+d.datos.nombre_completo+'</p><button class="btn btn-blue" onclick="location.reload()">OK</button>';
                 }
-            } catch(e) {
-                alert("Error de conexión");
-                location.reload();
-            }
+            } catch(e) { alert("Error"); location.reload(); }
         }
 
-        // --- SISTEMA DE SESIÓN ---
+        // --- LOGIN ---
         async function doLogin() {
             const u = document.getElementById('l-user').value;
             const p = document.getElementById('l-pass').value;
-            
-            try {
-                const res = await fetch(API+'/api/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({usuario:u, password:p})});
-                const data = await res.json();
-                
-                if(data.exito) {
-                    localStorage.setItem('user', JSON.stringify(data.usuario));
-                    checkSession();
-                } else {
-                    alert('Credenciales incorrectas');
-                }
-            } catch(e) { alert("Error de red"); }
+            const res = await fetch(API+'/api/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({usuario:u, password:p})});
+            const data = await res.json();
+            if(data.exito) {
+                localStorage.setItem('user', JSON.stringify(data.usuario));
+                checkSession();
+            } else alert('Error credenciales');
         }
 
         function checkSession() {
@@ -322,11 +274,10 @@ const APP_HTML = `
             if(s) {
                 currentUser = JSON.parse(s);
                 document.getElementById('view-login').style.display = 'none';
-                document.getElementById('u-name').innerText = currentUser.nombres.split(' ')[0];
+                document.getElementById('u-name').innerText = currentUser.nombres;
                 verDashboard();
             }
         }
-
         function logout() { localStorage.removeItem('user'); location.reload(); }
 
         async function guardar() {
@@ -357,19 +308,15 @@ app.get('/', (req, res) => res.send(APP_HTML));
 
 app.post('/api/login', async (req, res) => {
   const { usuario, password } = req.body;
-  try {
-      const r = await pool.query('SELECT * FROM usuarios WHERE numero_documento = $1 AND password = $2', [usuario, password]);
-      if(r.rows.length > 0) res.json({exito:true, usuario:r.rows[0]});
-      else res.json({exito:false});
-  } catch(e) { res.status(500).json({error:e.message}); }
+  const r = await pool.query('SELECT * FROM usuarios WHERE numero_documento = $1 AND password = $2', [usuario, password]);
+  if(r.rows.length > 0) res.json({exito:true, usuario:r.rows[0]});
+  else res.json({exito:false});
 });
 
 app.get('/api/dashboard/stats', async (req, res) => {
-  try {
-      const t = await pool.query('SELECT COUNT(*) FROM referidos');
-      const v = await pool.query('SELECT COUNT(*) FROM referidos WHERE estado_voto = true');
-      res.json({ total: t.rows[0].count, votos: v.rows[0].count });
-  } catch(e) { res.json({total:0, votos:0}); }
+  const t = await pool.query('SELECT COUNT(*) FROM referidos');
+  const v = await pool.query('SELECT COUNT(*) FROM referidos WHERE estado_voto = true');
+  res.json({ total: t.rows[0].count, votos: v.rows[0].count });
 });
 
 app.post('/api/crear_referido', async (req, res) => {
@@ -383,20 +330,16 @@ app.post('/api/crear_referido', async (req, res) => {
 });
 
 app.get('/api/verificar/:cedula', async (req, res) => {
-  try {
-      const { cedula } = req.params;
-      const r = await pool.query(`SELECT r.*, u.nombres as nombre_coordinador FROM referidos r JOIN usuarios u ON r.responsable_id = u.id WHERE r.numero_documento = $1`, [cedula]);
-      if (r.rows.length === 0) return res.json({ estado: 'NUEVO' });
-      if (r.rows[0].estado_voto) return res.json({ estado: 'YA_VOTO', datos: r.rows[0] });
-      return res.json({ estado: 'REGISTRADO', datos: r.rows[0] });
-  } catch(e) { res.json({estado:'ERROR'}); }
+  const { cedula } = req.params;
+  const r = await pool.query(`SELECT r.*, u.nombres as nombre_coordinador FROM referidos r JOIN usuarios u ON r.responsable_id = u.id WHERE r.numero_documento = $1`, [cedula]);
+  if (r.rows.length === 0) return res.json({ estado: 'NUEVO' });
+  if (r.rows[0].estado_voto) return res.json({ estado: 'YA_VOTO', datos: r.rows[0] });
+  return res.json({ estado: 'REGISTRADO', datos: r.rows[0] });
 });
 
 app.put('/api/referidos/votar/:cedula', async (req, res) => {
-  try {
-      await pool.query('UPDATE referidos SET estado_voto = true WHERE numero_documento = $1', [req.params.cedula]);
-      res.json({ exito: true });
-  } catch(e) { res.json({exito:false}); }
+  await pool.query('UPDATE referidos SET estado_voto = true WHERE numero_documento = $1', [req.params.cedula]);
+  res.json({ exito: true });
 });
 
 app.get('/setup_master_v3', async (req, res) => {
