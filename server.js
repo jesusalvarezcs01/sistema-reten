@@ -13,7 +13,7 @@ const pool = new Pool({
 });
 
 // =================================================================
-// V12: INTEGRACIÓN MANUAL (SIN ETIQUETA HTML)
+// CÓDIGO MAESTRO V13: JSDELIVR (RED DE ALTA VELOCIDAD)
 // =================================================================
 const APP_HTML = `
 <!DOCTYPE html>
@@ -23,7 +23,7 @@ const APP_HTML = `
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Sistema Electoral</title>
     
-    <script src="https://unpkg.com/@microblink/blinkid-in-browser-sdk@5.8.0/dist/blinkid-sdk.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@microblink/blinkid-in-browser-sdk@5.8.0/dist/blinkid-sdk.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     
     <style>
@@ -42,15 +42,14 @@ const APP_HTML = `
         .btn-blue { background: #003366; }
         input { width: 100%; padding: 12px; margin-bottom: 10px; text-align: center; border: 1px solid #ddd; border-radius: 5px; font-size: 16px; }
 
-        /* CAMARA FULLSCREEN (IMPORTANTE) */
+        /* CAMARA FULLSCREEN */
         #camera-feed { width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
-        /* Forzamos al video a ocupar todo */
         #camera-feed video { object-fit: cover; width: 100% !important; height: 100% !important; }
 
         /* UI SOBRE CAMARA */
         .scan-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 70; }
         .scan-header { padding: 15px; display: flex; justify-content: space-between; background: rgba(0,0,0,0.5); pointer-events: auto; }
-        #scan-msg { position: absolute; top: 50%; width: 100%; text-align: center; color: white; transform: translateY(-50%); }
+        #scan-msg { position: absolute; top: 50%; width: 100%; text-align: center; color: white; transform: translateY(-50%); text-shadow: 0 2px 4px black; }
 
         /* MODAL */
         #modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 100; display: none; align-items: center; justify-content: center; }
@@ -93,13 +92,14 @@ const APP_HTML = `
     </div>
 
     <div id="view-scanner">
-        <div id="camera-feed"></div> <div class="scan-overlay">
+        <div id="camera-feed"></div>
+        <div class="scan-overlay">
             <div class="scan-header">
                 <span style="color:white; font-weight:bold;">ESCANEANDO...</span>
                 <button onclick="stopCamera()" style="background:white; border:none; padding:5px 15px; border-radius:20px;">CERRAR</button>
             </div>
             <div id="scan-msg">
-                <i class="fas fa-spinner fa-spin fa-3x"></i><br><br>CARGANDO MOTOR...
+                <i class="fas fa-spinner fa-spin fa-3x"></i><br><br>DESCARGANDO MOTOR...
             </div>
         </div>
     </div>
@@ -111,65 +111,56 @@ const APP_HTML = `
         let videoRecognizer = null;
         let sdkRunner = null;
 
-        // --- MANEJO DE VISTAS (EXTREMO) ---
+        // --- MANEJO DE VISTAS ---
         function mostrarDashboard(user) {
-            // BORRAMOS EL LOGIN DEL DOM PARA QUE NO MOLESTE
             const loginDiv = document.getElementById('view-login');
             if(loginDiv) loginDiv.remove(); 
-
             document.getElementById('view-dashboard').style.display = 'block';
             document.getElementById('lbl-user').innerText = user.nombres;
             cargarStats();
         }
 
-        // --- MICROBLINK MANUAL ---
+        // --- MICROBLINK CON JSDELIVR ---
         async function startCamera() {
             document.getElementById('view-dashboard').style.display = 'none';
             document.getElementById('view-scanner').style.display = 'block';
-            document.getElementById('scan-msg').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Cargando Recursos...';
+            document.getElementById('scan-msg').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Conectando Servidor...';
 
             try {
-                // 1. Verificar soporte
                 if (!BlinkIDSDK.isBrowserSupported()) {
                     alert("Navegador no soportado"); return stopCamera();
                 }
 
-                // 2. Cargar el archivo WASM (El cerebro)
+                // CONFIGURACIÓN CRÍTICA: USAR JSDELIVR
                 const loadSettings = new BlinkIDSDK.WasmSDKLoadSettings(LICENCIA);
                 
-                // PUNTO CRITICO: Definimos la ruta exacta de los recursos en UNPKG
-                loadSettings.engineLocation = "https://unpkg.com/@microblink/blinkid-in-browser-sdk@5.8.0/resources/";
+                // ===> AQUÍ ESTÁ LA CORRECCIÓN <===
+                loadSettings.engineLocation = "https://cdn.jsdelivr.net/npm/@microblink/blinkid-in-browser-sdk@5.8.0/resources/";
 
-                document.getElementById('scan-msg').innerText = "Descargando Motor IA...";
+                document.getElementById('scan-msg').innerText = "Cargando Inteligencia Artificial...";
                 
-                // 3. Crear el SDK
                 const sdk = await BlinkIDSDK.loadWasmModule(loadSettings);
                 sdkRunner = sdk;
 
                 document.getElementById('scan-msg').innerText = "Iniciando Cámara...";
 
-                // 4. Crear reconocedor
                 const recognizer = await BlinkIDSDK.createBlinkIdRecognizer(sdk);
                 const recognizerRunner = await BlinkIDSDK.createRecognizerRunner(sdk, [recognizer], false);
 
-                // 5. Iniciar Video en el Div 'camera-feed'
                 videoRecognizer = await BlinkIDSDK.VideoRecognizer.createVideoRecognizerFromCameraStream(
                     document.getElementById('camera-feed'),
                     recognizerRunner
                 );
 
-                // 6. Iniciar reconocimiento
                 document.getElementById('scan-msg').style.display = 'none'; // Ocultar texto
                 
                 await videoRecognizer.startRecognition(async (state) => {
                     if (state === BlinkIDSDK.RecognizerResultState.Valid) {
                         const result = await recognizer.getResult();
-                        
-                        // Extraer numero
                         let doc = result.documentNumber || result.mrz.documentNumber || result.mrz.primaryId;
                         
                         if(doc) {
-                            videoRecognizer.pauseRecognition(); // Pausar
+                            videoRecognizer.pauseRecognition();
                             let cedula = doc.replace(/[^0-9]/g, '');
                             procesarCedula(cedula);
                         }
@@ -178,21 +169,14 @@ const APP_HTML = `
 
             } catch (err) {
                 console.error(err);
-                alert("Error iniciando escáner: " + err.message);
+                alert("Error técnico: " + err.message);
                 stopCamera();
             }
         }
 
         function stopCamera() {
-            if (videoRecognizer) {
-                videoRecognizer.releaseVideoFeed();
-                videoRecognizer = null;
-            }
-            if (sdkRunner) {
-                // sdkRunner.delete(); // Opcional limpieza
-                sdkRunner = null;
-            }
-            // Recargar pagina para limpiar memoria RAM del celular (Es lo mas seguro)
+            if (videoRecognizer) { videoRecognizer.releaseVideoFeed(); videoRecognizer = null; }
+            if (sdkRunner) { sdkRunner = null; }
             location.reload();
         }
 
@@ -291,7 +275,6 @@ app.put('/api/referidos/votar/:cedula', async (req, res) => {
 });
 
 app.get('/setup_master_v3', async (req, res) => {
-  // RESETEA SOLO SI ES NECESARIO
   try {
     await pool.query('DROP TABLE IF EXISTS referidos; DROP TABLE IF EXISTS usuarios;');
     await pool.query(`CREATE TABLE usuarios (id SERIAL PRIMARY KEY, nombres VARCHAR(100), numero_documento VARCHAR(20), password VARCHAR(100), rol VARCHAR(20));`);
