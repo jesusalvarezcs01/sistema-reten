@@ -12,64 +12,67 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-// --- RUTA DE ARQUITECTURA (ROLES Y PERMISOS DEFINITIVOS) ---
-app.get('/setup_final', async (req, res) => {
+// --- RUTA DE ARQUITECTURA SEGÚN PDF ---
+app.get('/setup_pdf', async (req, res) => {
   try {
-    // 1. Limpieza total (Borramos para reconstruir bien)
     await pool.query('DROP TABLE IF EXISTS referidos;');
     await pool.query('DROP TABLE IF EXISTS usuarios;');
     
-    // 2. Tabla de USUARIOS (Aquí defines quién es Admin, Concejal o Coordinador)
+    // 1. Tabla de USUARIOS (Req 2.1 del PDF)
     await pool.query(`
       CREATE TABLE usuarios (
         id SERIAL PRIMARY KEY,
-        usuario VARCHAR(50) UNIQUE NOT NULL,
-        password VARCHAR(50) NOT NULL,
-        nombre_completo VARCHAR(100),
-        rol VARCHAR(20) NOT NULL, -- 'ADMIN', 'CONCEJAL', 'COORDINADOR'
-        telefono VARCHAR(20)
+        nombres VARCHAR(100),
+        apellidos VARCHAR(100),
+        tipo_documento VARCHAR(20),
+        numero_documento VARCHAR(20) UNIQUE NOT NULL,
+        correo VARCHAR(100),
+        celular VARCHAR(20),
+        password VARCHAR(100), -- Debe ser hash en prod, texto plano por ahora
+        rol VARCHAR(20) NOT NULL -- 'ADMIN', 'CONCEJAL', 'COORDINADOR'
       );
     `);
 
-    // 3. Tabla de REFERIDOS (Votantes)
-    // Se vincula al 'coordinador_id' para saber quién trajo el voto
+    // 2. Tabla de REFERIDOS (Req 2.2 del PDF)
     await pool.query(`
       CREATE TABLE referidos (
         id SERIAL PRIMARY KEY,
-        cedula VARCHAR(20) UNIQUE NOT NULL,
-        nombre VARCHAR(100),
+        nombre_completo VARCHAR(150),
+        tipo_documento VARCHAR(20),
+        numero_documento VARCHAR(20) UNIQUE NOT NULL,
         mesa_votacion VARCHAR(10),
-        telefono VARCHAR(20),
-        voto BOOLEAN DEFAULT FALSE,
-        coordinador_id INTEGER REFERENCES usuarios(id)
+        celular VARCHAR(20),
+        estado_voto BOOLEAN DEFAULT FALSE, -- Req: Valor por defecto false
+        observaciones TEXT,
+        responsable_id INTEGER REFERENCES usuarios(id) -- Asociación obligatoria
       );
     `);
 
-    // --- CREACIÓN DE USUARIOS BASE ---
-
-    // 1. EL ADMINISTRADOR (TÚ) - Control Total
-    await pool.query(`INSERT INTO usuarios (usuario, password, nombre_completo, rol) 
-      VALUES ('admin', 'admin2026', 'Administrador del Sistema', 'ADMIN');`);
+    // --- USUARIOS BASE ---
+    // ADMIN (Tú)
+    await pool.query(`INSERT INTO usuarios (nombres, numero_documento, password, rol) 
+      VALUES ('Administrador', 'admin', 'admin2026', 'ADMIN');`);
     
-    // 2. EL CONCEJAL (Solo Vista)
-    await pool.query(`INSERT INTO usuarios (usuario, password, nombre_completo, rol) 
-      VALUES ('concejal', 'victoria2026', 'H.C. Candidato', 'CONCEJAL');`);
+    // CONCEJAL (Usuario de prueba)
+    await pool.query(`INSERT INTO usuarios (nombres, numero_documento, password, rol) 
+      VALUES ('Candidato', 'concejal', 'victoria2026', 'CONCEJAL');`);
     
-    // 3. UN COORDINADOR DE EJEMPLO (Trabajo de Campo)
-    await pool.query(`INSERT INTO usuarios (usuario, password, nombre_completo, rol) 
-      VALUES ('lider1', 'lider123', 'Coordinador Zona 1', 'COORDINADOR');`);
+    // COORDINADOR (Usuario de prueba)
+    await pool.query(`INSERT INTO usuarios (nombres, numero_documento, password, rol) 
+      VALUES ('Lider Zona 1', 'lider1', 'lider123', 'COORDINADOR');`);
 
-    res.send("✅ ESTRUCTURA CORRECTA: Administrador, Concejal y Coordinadores creados.");
+    res.send("✅ REQUERIMIENTOS PDF APLICADOS: Tablas con campos exactos creadas.");
   } catch (err) {
     console.error(err);
     res.send("❌ ERROR: " + err.message);
   }
 });
 
-// --- LOGIN (IDENTIFICADOR DE ROLES) ---
+// --- LOGIN ---
 app.post('/api/login', async (req, res) => {
   const { usuario, password } = req.body;
-  const result = await pool.query('SELECT * FROM usuarios WHERE usuario = $1 AND password = $2', [usuario, password]);
+  // En el PDF el usuario es el número de documento
+  const result = await pool.query('SELECT * FROM usuarios WHERE numero_documento = $1 AND password = $2', [usuario, password]);
   
   if (result.rows.length > 0) {
     res.json({ exito: true, usuario: result.rows[0] });
@@ -78,35 +81,32 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// --- API: CONTEO GENERAL (Para Admin y Concejal) ---
-app.get('/api/admin/estadisticas', async (req, res) => {
-  const total = await pool.query('SELECT COUNT(*) FROM referidos');
-  const votos = await pool.query('SELECT COUNT(*) FROM referidos WHERE voto = true');
-  // Aquí podemos agregar más desglose por mesas después
-  res.json({ total: total.rows[0].count, votos: votos.rows[0].count });
+// --- API: CREAR REFERIDO (Función de Coordinador) ---
+app.post('/api/crear_referido', async (req, res) => {
+  const { nombre, tipo_doc, num_doc, mesa, celular, observaciones, responsable_id } = req.body;
+  try {
+    await pool.query(`
+      INSERT INTO referidos (nombre_completo, tipo_documento, numero_documento, mesa_votacion, celular, observaciones, responsable_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `, [nombre, tipo_doc, num_doc, mesa, celular, observaciones, responsable_id]);
+    res.json({ exito: true, mensaje: 'Referido guardado correctamente' });
+  } catch (err) {
+    res.status(500).json({ exito: false, error: err.message });
+  }
 });
 
-// --- API: VER REFERIDOS DE UN COORDINADOR ESPECÍFICO ---
-app.get('/api/mis_referidos/:id_coordinador', async (req, res) => {
-  const { id_coordinador } = req.params;
-  const result = await pool.query('SELECT * FROM referidos WHERE coordinador_id = $1', [id_coordinador]);
+// --- API: MIS REFERIDOS (Para Coordinador) ---
+app.get('/api/mis_referidos/:id', async (req, res) => {
+  const { id } = req.params;
+  const result = await pool.query('SELECT * FROM referidos WHERE responsable_id = $1', [id]);
   res.json(result.rows);
 });
 
-// --- API: ESCANEO GENERAL (Para ingreso en puerta) ---
-app.get('/api/verificar/:cedula', async (req, res) => {
-  const { cedula } = req.params;
-  const result = await pool.query(`
-    SELECT r.*, u.nombre_completo as nombre_coordinador 
-    FROM referidos r 
-    LEFT JOIN usuarios u ON r.coordinador_id = u.id 
-    WHERE r.cedula = $1
-  `, [cedula]);
-
-  if (result.rows.length === 0) {
-    return res.json({ estado: 'NUEVO', mensaje: 'Votante no registrado' });
-  }
-  return res.json({ estado: 'REGISTRADO', datos: result.rows[0] });
+// --- API: TOTALES (Para Admin y Concejal) ---
+app.get('/api/dashboard/totales', async (req, res) => {
+  const total = await pool.query('SELECT COUNT(*) FROM referidos');
+  const votos = await pool.query('SELECT COUNT(*) FROM referidos WHERE estado_voto = true');
+  res.json({ total: total.rows[0].count, votos: votos.rows[0].count });
 });
 
 const PORT = process.env.PORT || 3000;
